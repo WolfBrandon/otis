@@ -58,7 +58,7 @@ const server = {
       es.addEventListener(name, e => { try { handlers[name]?.(JSON.parse(e.data)); } catch {} });
   },
   // Tell the server what's open, for the MCP tools.
-  setCurrent: (id, selection = []) => api('PUT', 'current', { id, selection }).catch(() => {}),
+  setCurrent: (id, tab, selection = []) => api('PUT', 'current', { id, tab, selection }).catch(() => {}),
 };
 
 const local = {
@@ -76,7 +76,7 @@ const local = {
     LS.set('otis:project:' + p.id, p);
     const idx = LS.get('otis:index', {});
     const updated = new Date().toISOString();
-    idx[p.id] = { id: p.id, name: p.name, cols: p.cols, rows: p.rows, updated };
+    idx[p.id] = { id: p.id, name: p.name, cols: p.tabs[0].cols, rows: p.tabs[0].rows, tabs: p.tabs.length, updated };
     LS.set('otis:index', idx);
     return { id: p.id, updated };
   },

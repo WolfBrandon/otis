@@ -24,6 +24,7 @@ export function makeGrid(cols, rows) {
     attr: new Uint8Array(n),
     font: new Array(n).fill(null),
     owner: new Array(n).fill(null),
+    cover: new Uint8Array(n),        // a box's fill: hides backgrounds underneath
     half: new Array(n).fill(null),   // open line ends, so later lines can join them
     touched: [],
   };
@@ -47,7 +48,9 @@ function join(old, ch, stub) {
 }
 
 // Write one cell into a layer buffer. A space without a background is
-// transparent. Border and line cells (merge = true) join with box-drawing
+// transparent unless `opaque`. A box's fill (opaque = 'cover') also hides the
+// background colors underneath: the cell shows the box's own background, or
+// the canvas. Border and line cells (merge = true) join with box-drawing
 // characters already on the same layer.
 function put(buf, x, y, ch, fg, bg, attr, font, owner, merge, stub = null, opaque = false) {
   if (x < 0 || y < 0 || x >= buf.cols || y >= buf.rows) return;
@@ -57,7 +60,7 @@ function put(buf, x, y, ch, fg, bg, attr, font, owner, merge, stub = null, opaqu
   if (buf.owner[i] !== null) {
     const old = buf.half[i] || buf.ch[i];
     if (merge && buf.merge && old && ch && lineish(old) && lineish(ch)) ch = join(old, ch, stub);
-    if (bg == null) bg = buf.bg[i];
+    if (bg == null && opaque !== 'cover') bg = buf.bg[i];
   } else {
     buf.touched.push(i);
     if (stub && stub.weight) {
@@ -73,6 +76,7 @@ function put(buf, x, y, ch, fg, bg, attr, font, owner, merge, stub = null, opaqu
   buf.attr[i] = attr;
   buf.font[i] = font;
   buf.owner[i] = owner;
+  if (opaque === 'cover') buf.cover[i] = 1;
 }
 
 function drawFrame(buf, o, owner) {
@@ -88,7 +92,7 @@ function drawFrame(buf, o, owner) {
   if (o.fill != null || o.bg != null) {
     const fc = o.fill == null || o.fill === '' ? ' ' : chars(o.fill)[0];
     for (let r = y + b; r < y + h - b; r++)
-      for (let c = x + b; c < x + w - b; c++) put(buf, c, r, fc, o.fg, o.bg, 0, font, owner, false, null, o.fill != null);
+      for (let c = x + b; c < x + w - b; c++) put(buf, c, r, fc, o.fg, o.bg, 0, font, owner, false, null, o.fill != null && 'cover');
   }
 
   // border
@@ -238,10 +242,11 @@ export function drawObject(buf, o, owner = o.id) {
   }
 }
 
-// Flatten visible layers into one grid. Junctions merge within a layer only,
-// so a popup on its own layer doesn't fuse with the boxes underneath.
-export function composite(project, { layers = project.layers, merge = project.mergeJunctions !== false } = {}) {
-  const { cols, rows } = project;
+// Flatten a tab's visible layers into one grid (the first tab unless `tab`
+// says otherwise). Junctions merge within a layer only, so a popup on its own
+// layer doesn't fuse with the boxes underneath.
+export function composite(project, { tab = project.tabs[0], layers = tab.layers, merge = project.mergeJunctions !== false } = {}) {
+  const { cols, rows } = tab;
   const grid = makeGrid(cols, rows);
   for (const layer of layers) {
     if (!layer.visible) continue;
@@ -252,7 +257,7 @@ export function composite(project, { layers = project.layers, merge = project.me
       if (grid.owner[i] === null) grid.touched.push(i);
       grid.ch[i] = buf.ch[i];
       grid.fg[i] = buf.fg[i];
-      if (buf.bg[i] != null) grid.bg[i] = buf.bg[i];
+      if (buf.bg[i] != null || buf.cover[i]) grid.bg[i] = buf.bg[i];
       grid.attr[i] = buf.attr[i];
       grid.font[i] = buf.font[i];
       grid.owner[i] = buf.owner[i];
@@ -263,5 +268,5 @@ export function composite(project, { layers = project.layers, merge = project.me
 
 // Composite a loose list of objects (snippet previews, selections).
 export function compositeObjects(objects, cols, rows, merge = true) {
-  return composite({ cols, rows, layers: [{ visible: true, objects }] }, { merge });
+  return composite({}, { tab: { cols, rows, layers: [{ visible: true, objects }] }, merge });
 }

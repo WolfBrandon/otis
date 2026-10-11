@@ -1,9 +1,11 @@
 // OTIS entry point: wires the renderer, tools, panels and storage together.
 
-import { state, on, emit, setProject, replaceProject, gestureActive } from './state.js';
+import { state, on, emit, setProject, replaceProject, gestureActive, switchTab } from './state.js';
 import { Renderer } from './render.js';
-import { initTools } from './tools.js';
-import { initPanels } from './panels.js';
+import { initTools, commands } from './tools.js';
+import { initPanels, hooks } from './panels.js';
+import { textArtDialog } from './artdialog.js';
+import { initTabs } from './tabs.js';
 import { initSidebar } from './sidebar.js';
 import { initLibrary } from './library.js';
 import { initMenus, chromeFollows } from './menus.js';
@@ -108,34 +110,43 @@ function syncSoon(conflict = false) {
     if (state.project !== p) return;
     const lost = conflicted && state.dirty;
     conflicted = false;
+    const before = new Map(p.tabs.map(t => [t.id, JSON.stringify(t)]));
     replaceProject(fresh);
     status('Saved');
+    // say so when the change was on a tab other than the open one
+    const changed = state.project.tabs.filter(t => before.get(t.id) !== JSON.stringify(t));
+    const elsewhere = changed.length && !changed.some(t => t.id === state.tabId)
+      ? ` on tab \u201c${changed[0].name}\u201d` : '';
     toast(lost
       ? 'This project was changed outside this window, so your last edit wasn\u2019t saved. Ctrl+Z brings it back.'
-      : (lastBy === 'mcp' ? 'Updated by the AI' : 'Updated in another window') + ' \u2014 Ctrl+Z to undo', lost ? 8000 : 4000);
+      : (lastBy === 'mcp' ? 'Updated by the AI' : 'Updated in another window') + elsewhere + ' \u2014 Ctrl+Z to undo', lost ? 8000 : 4000);
   }, 250);
 }
 
-// Open a project the AI asked to show (or a #p=<id> link).
-async function openProject(id) {
-  if (!id || id === state.project?.id) return;
-  if (gestureActive()) return setTimeout(() => openProject(id), 500);
-  await saveNow();
-  try {
-    const p = await storage.loadProject(id);
-    setProject(p);
-    lastProject.set(id);
-    status('Saved');
-    toast(`Opened \u201c${p.name || 'Untitled'}\u201d`);
-  } catch (e) { toast('Could not open the project: ' + e.message, 5000); }
+// Open a project (and tab) the AI asked to show, or a #p=<id> link.
+async function openProject(id, tab = null) {
+  if (!id) return;
+  if (gestureActive()) return setTimeout(() => openProject(id, tab), 500);
+  if (id !== state.project?.id) {
+    await saveNow();
+    try {
+      const p = await storage.loadProject(id);
+      setProject(p);
+      lastProject.set(id);
+      status('Saved');
+      toast(`Opened \u201c${p.name || 'Untitled'}\u201d`);
+    } catch (e) { toast('Could not open the project: ' + e.message, 5000); return; }
+  }
+  if (tab && state.project.id === id) switchTab(tab);
 }
 
 let reportTimer = null;
 function reportCurrent() {
   clearTimeout(reportTimer);
-  reportTimer = setTimeout(() => storage.setCurrent(state.project?.id, state.selection), 300);
+  reportTimer = setTimeout(() => storage.setCurrent(state.project?.id, state.tabId, state.selection), 300);
 }
 on('project', reportCurrent);
+on('tab', reportCurrent);
 on('selection', reportCurrent);
 
 on('dirty', () => {
@@ -152,7 +163,7 @@ function showStorage() {
   const cell = $('#st-storage');
   if (storage.kind !== 'local') { cell.textContent = storage.label; return; }
   cell.replaceChildren(storage.label + ' · ',
-    el('a', { href: REPO_URL + '#run-it', target: '_blank', rel: 'noopener' }, 'Get OTIS'));
+    el('a', { href: REPO_URL + '#install', target: '_blank', rel: 'noopener' }, 'Get OTIS'));
   let seen = true;
   try { seen = !!localStorage.getItem('otis:welcomed'); localStorage.setItem('otis:welcomed', '1'); } catch {}
   if (!seen) toast('You\u2019re using OTIS in the browser: designs stay in this browser. Install OTIS for your own Omarchy themes and AI drawing (\u201cGet OTIS\u201d, bottom right).', 9000);
@@ -168,6 +179,8 @@ async function boot() {
   initSidebar();
   initTools(renderer);
   initPanels();
+  initTabs();
+  hooks.textArt = commands.textArt = o => textArtDialog(o);
   initMenus(renderer, saveNow);
   await detectStorage();
   showStorage();
@@ -192,7 +205,7 @@ async function boot() {
       lastBy = by;
       syncSoon();
     },
-    show: ({ id }) => openProject(id),
+    show: ({ id, tab }) => openProject(id, tab),
     open: reportCurrent,   // (re)connected: the server may have restarted
   });
   window.addEventListener('hashchange', () => {

@@ -199,10 +199,11 @@ export const BUILTIN_SNIPPETS = DEFS.map((d, i) =>
 export function sampleProject(font) {
   const p = makeProject({ name: 'Welcome to OTIS', cols: 100, rows: 30 });
   if (font) p.font.family = font;
-  const base = p.layers[0];
+  const { layers } = p.tabs[0];
+  const base = layers[0];
   base.name = 'Layout';
   const ui = makeLayer('Widgets');
-  p.layers.push(ui);
+  layers.push(ui);
   // place a built-in snippet (grouped, so it moves as one) or loose objects
   const get = name => {
     const objs = structuredClone(BUILTIN_SNIPPETS.find(s => s.name === name).objects);
@@ -226,7 +227,7 @@ export function sampleProject(font) {
   place(ui, get('Key hints'), 60, 28);
   const popup = makeLayer('Popup (hidden)');
   popup.visible = false;
-  p.layers.push(popup);
+  layers.push(popup);
   place(popup, get('Dialog'), 30, 10);
   return p;
 }

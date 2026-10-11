@@ -3,12 +3,12 @@
 
 import {
   state, emit, on, find, findDeep, selected, select, setTool, beginGesture, endGesture, changed,
-  startEditing, stopEditing, editTarget, undo, redo,
+  startEditing, stopEditing, editTarget, undo, redo, activeTab, switchTab,
 } from './state.js';
 import {
   makeBox, makeText, makeLine, makeBlock, makeCursor, makePaint, makeTable,
   tableCellAt, cellFrame, tableEdges, fitTableTo, resizeTable,
-  bounds, translate, hitTest, rectsIntersect, cloneObject, fitText, indexAtCell, caretCell, chars,
+  bounds, unionBounds, scaleObjects, translate, hitTest, rectsIntersect, cloneObject, fitText, indexAtCell, caretCell, chars,
 } from './model.js';
 import * as A from './actions.js';
 import { toast } from './ui.js';
@@ -30,7 +30,7 @@ const pickable = o => { const l = layerOf(o.id); return l && l.visible && !l.loc
 // else the topmost object whose box contains the cell.
 function pickObject(cell) {
   const grid = R.getGrid();
-  const p = state.project;
+  const p = activeTab();
   if (cell.x >= 0 && cell.y >= 0 && cell.x < p.cols && cell.y < p.rows) {
     const id = grid.owner[cell.y * p.cols + cell.x];
     const hit = id && find(id);
@@ -61,6 +61,7 @@ function editableAt(o, x, y) {
 }
 
 function editAt(o, cell) {
+  if (o.art) return commands.textArt?.(o);   // TextArt opens its dialog
   setTool('select');
   if (o.type === 'table') {
     const rc = tableCellAt(o, cell.x, cell.y);
@@ -154,23 +155,40 @@ function moveGesture(start, duplicate) {
   };
 }
 
+// The rectangle `b0` with the edges of handle `dir` dragged from `start` to
+// `cell`. Handles sit on cell boundaries, so the pointer snaps to the nearest.
+function dragRect(b0, dir, start, cell, min) {
+  const dx = Math.round(cell.fx) - Math.round(start.fx), dy = Math.round(cell.fy) - Math.round(start.fy);
+  let x1 = b0.x, y1 = b0.y, x2 = b0.x + b0.w, y2 = b0.y + b0.h;
+  if (dir.includes('w')) x1 = Math.min(x2 - min, b0.x + dx);
+  if (dir.includes('e')) x2 = Math.max(x1 + min, x2 + dx);
+  if (dir.includes('n')) y1 = Math.min(y2 - min, b0.y + dy);
+  if (dir.includes('s')) y2 = Math.max(y1 + min, y2 + dy);
+  return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+}
+
 function resizeGesture(h, start) {
   const o = selected()[0];
   beginGesture();
   const b0 = { x: o.x, y: o.y, w: o.w, h: o.h };
   if (o.autoSize) o.autoSize = false;
   const min = o.border && o.border !== 'none' ? 2 : 1;
-  const d = h.dir;
-  // handles sit on cell boundaries, so snap the pointer to the nearest one
+  return {
+    move(cell) { Object.assign(o, dragRect(b0, h.dir, start, cell, min)); changed(); },
+    up: endGesture,
+  };
+}
+
+// Several objects (or a group): stretch everything with the outline around them.
+function scaleGesture(h, start) {
+  const sel = selected();
+  beginGesture();
+  const originals = structuredClone(sel);
+  const b0 = unionBounds(sel.map(bounds));
   return {
     move(cell) {
-      const dx = Math.round(cell.fx) - Math.round(start.fx), dy = Math.round(cell.fy) - Math.round(start.fy);
-      let x1 = b0.x, y1 = b0.y, x2 = b0.x + b0.w, y2 = b0.y + b0.h;
-      if (d.includes('w')) x1 = Math.min(x2 - min, b0.x + dx);
-      if (d.includes('e')) x2 = Math.max(x1 + min, x2 + dx);
-      if (d.includes('n')) y1 = Math.min(y2 - min, b0.y + dy);
-      if (d.includes('s')) y2 = Math.max(y1 + min, y2 + dy);
-      Object.assign(o, { x: x1, y: y1, w: x2 - x1, h: y2 - y1 });
+      const to = dragRect(b0, h.dir, start, cell, 1);
+      scaleObjects(originals, b0, to).forEach((c, i) => Object.assign(sel[i], c));
       changed();
     },
     up: endGesture,
@@ -214,7 +232,7 @@ function marqueeGesture(start, add) {
       const r = rectFrom(start, cell);
       R.overlay.marquee = r;
       const ids = [];
-      for (const l of state.project.layers) {
+      for (const l of activeTab().layers) {
         if (!l.visible || l.locked) continue;
         for (const o of l.objects) if (!o.hidden && rectsIntersect(bounds(o), r)) ids.push(o.id);
       }
@@ -272,7 +290,7 @@ const TOOLS = {
     const edge = tbl && tableEdgeAt(tbl, cell);
     if (edge) return tableEdgeGesture(tbl, edge, cell);
     const h = handleAt(e);
-    if (h) return h.kind === 'point' ? pointGesture(h) : resizeGesture(h, cell);
+    if (h) return h.kind === 'point' ? pointGesture(h) : h.kind === 'scale' ? scaleGesture(h, cell) : resizeGesture(h, cell);
     const o = pickObject(cell);
     if (o) {
       if (e.shiftKey) {
@@ -405,8 +423,9 @@ const TOOLS = {
     }
     const index = new Map(o.cells.map((c, i) => [c[0] + ',' + c[1], i]));
     const { glyph, fg, bg } = state.brush;
+    const { cols, rows } = activeTab();
     const paint = ({ x, y }) => {
-      if (x < 0 || y < 0 || x >= state.project.cols || y >= state.project.rows) return;
+      if (x < 0 || y < 0 || x >= cols || y >= rows) return;
       const dx = x - o.x, dy = y - o.y, key = dx + ',' + dy;
       const v = [dx, dy, glyph || '█', fg, bg];
       if (index.has(key)) o.cells[index.get(key)] = v;
@@ -575,7 +594,7 @@ export function initTools(renderer) {
 
   canvas.addEventListener('pointermove', e => {
     const cell = R.clientToCell(e.clientX, e.clientY);
-    const p = state.project;
+    const p = activeTab();
     const inside = cell.x >= 0 && cell.y >= 0 && cell.x < p.cols && cell.y < p.rows;
     const moved = cell.x !== pointer.x || cell.y !== pointer.y || inside !== pointer.inside;
     Object.assign(pointer, { x: cell.x, y: cell.y, inside });
@@ -676,7 +695,12 @@ function onKeyDown(e) {
       default: handled = false;
     }
   } else if (e.altKey) {
-    handled = false;
+    // Alt+PageUp / Alt+PageDown: previous / next tab
+    const step = { PageUp: -1, PageDown: 1 }[k];
+    const tabs = state.project.tabs;
+    const i = tabs.indexOf(activeTab()) + (step || 0);
+    if (step && tabs[i]) switchTab(tabs[i].id);
+    else handled = false;
   } else {
     const step = e.shiftKey ? 5 : 1;
     switch (k) {
@@ -686,7 +710,8 @@ function onKeyDown(e) {
       case 'Enter': {
         const sel = selected()[0];
         const o = sel?.type === 'group' ? [...sel.children].reverse().find(c => c.type === 'text' || c.type === 'box') : sel;
-        if (o && (o.type === 'text' || o.type === 'box')) startEditing(o.id);
+        if (o?.art) commands.textArt?.(o);
+        else if (o && (o.type === 'text' || o.type === 'box')) startEditing(o.id);
         else if (o?.type === 'table') startEditing(o.id, null, [0, 0]);
         else handled = false;
         break;
@@ -706,7 +731,8 @@ function onKeyDown(e) {
       case '0': R.fit(); break;
       case '1': R.setZoom(1); break;
       default:
-        if (TOOL_KEYS[k] && (!e.shiftKey || k === '#')) setTool(TOOL_KEYS[k]);
+        if (k === 't' && e.shiftKey) commands.textArt?.();
+        else if (TOOL_KEYS[k] && (!e.shiftKey || k === '#')) setTool(TOOL_KEYS[k]);
         else handled = false;
     }
   }

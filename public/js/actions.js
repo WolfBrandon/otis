@@ -1,7 +1,7 @@
 // Editor actions shared by menus, keyboard shortcuts and panels.
 
-import { state, emit, mutate, find, selected, select, activeLayer, undo, redo } from './state.js';
-import { makeLayer, makeGroup, makeText, bounds, unionBounds, translate, cloneObject, walk } from './model.js';
+import { state, emit, mutate, find, selected, select, activeLayer, activeTab, switchTab, undo, redo } from './state.js';
+import { makeLayer, makeTab, makeGroup, makeText, bounds, unionBounds, translate, cloneObject, walk, uid } from './model.js';
 import { compositeObjects } from './composite.js';
 import { toast } from './ui.js';
 
@@ -18,13 +18,13 @@ export function writableLayer() {
 export function deleteSelection() {
   if (!state.selection.length) return;
   const ids = new Set(state.selection);
-  mutate(p => { for (const l of p.layers) l.objects = l.objects.filter(o => !ids.has(o.id) || l.locked); });
+  mutate(() => { for (const l of activeTab().layers) l.objects = l.objects.filter(o => !ids.has(o.id) || l.locked); });
   select([]);
 }
 
 export function selectAll() {
   const ids = [];
-  for (const l of state.project.layers) if (l.visible && !l.locked) ids.push(...l.objects.filter(o => !o.hidden).map(o => o.id));
+  for (const l of activeTab().layers) if (l.visible && !l.locked) ids.push(...l.objects.filter(o => !o.hidden).map(o => o.id));
   select(ids);
 }
 
@@ -52,7 +52,7 @@ export function nudge(dx, dy) {
 // Selected objects in drawing order (bottom layer first).
 function orderedSelection() {
   const ids = new Set(state.selection);
-  return state.project.layers.flatMap(l => l.objects.filter(o => ids.has(o.id)));
+  return activeTab().layers.flatMap(l => l.objects.filter(o => ids.has(o.id)));
 }
 
 export function group() {
@@ -108,7 +108,7 @@ export function arrange(step) {
 export function align(mode) {
   const sel = selected();
   if (!sel.length) return;
-  const p = state.project;
+  const p = activeTab();
   const ref = sel.length > 1 ? unionBounds(sel.map(bounds)) : { x: 0, y: 0, w: p.cols, h: p.rows };
   mutate(() => sel.forEach(o => {
     const b = bounds(o);
@@ -125,8 +125,8 @@ export function align(mode) {
 
 export function moveToLayer(layerId) {
   const sel = orderedSelection();
-  mutate(p => {
-    const dest = p.layers.find(l => l.id === layerId);
+  mutate(() => {
+    const dest = activeTab().layers.find(l => l.id === layerId);
     for (const o of sel) {
       const hit = find(o.id);
       if (hit.layer === dest) continue;
@@ -143,13 +143,14 @@ export function moveToLayer(layerId) {
 // there; without it they go on top of the layer. Objects keep their
 // stacking order; locked layers are left alone.
 export function moveObjects(ids, layerId, place = null) {
-  const dest = state.project.layers.find(l => l.id === layerId);
+  const layers = activeTab().layers;
+  const dest = layers.find(l => l.id === layerId);
   if (!dest || dest.locked) return;
-  const moving = state.project.layers.flatMap(l => l.locked ? [] : l.objects.filter(o => ids.includes(o.id)));
+  const moving = layers.flatMap(l => l.locked ? [] : l.objects.filter(o => ids.includes(o.id)));
   const ref = place?.above ?? place?.below;
   if (!moving.length || moving.some(o => o.id === ref)) return;
-  mutate(p => {
-    for (const l of p.layers) l.objects = l.objects.filter(o => !moving.includes(o));
+  mutate(() => {
+    for (const l of layers) l.objects = l.objects.filter(o => !moving.includes(o));
     const i = ref ? dest.objects.findIndex(o => o.id === ref) : -1;
     const at = i < 0 ? dest.objects.length : place.above ? i + 1 : i;
     dest.objects.splice(at, 0, ...moving);
@@ -174,10 +175,11 @@ export function renameObject(id, name) {
 // ── Layers ───────────────────────────────────────────────────────────────────
 
 export function addLayer() {
-  const l = makeLayer(`Layer ${state.project.layers.length + 1}`);
-  mutate(p => {
-    const i = p.layers.findIndex(x => x.id === state.activeLayerId);
-    p.layers.splice(i + 1, 0, l);
+  const layers = activeTab().layers;
+  const l = makeLayer(`Layer ${layers.length + 1}`);
+  mutate(() => {
+    const i = layers.findIndex(x => x.id === state.activeLayerId);
+    layers.splice(i + 1, 0, l);
   });
   state.activeLayerId = l.id;
   select([]);
@@ -186,27 +188,75 @@ export function addLayer() {
 export function duplicateLayer() {
   const src = activeLayer();
   const l = { ...makeLayer(src.name + ' copy'), visible: src.visible, objects: src.objects.map(cloneObject) };
-  mutate(p => p.layers.splice(p.layers.indexOf(src) + 1, 0, l));
+  const layers = activeTab().layers;
+  mutate(() => layers.splice(layers.indexOf(src) + 1, 0, l));
   state.activeLayerId = l.id;
   emit('selection');
 }
 
 export function deleteLayer() {
-  const p = state.project;
-  if (p.layers.length < 2) return toast('A project needs at least one layer.');
+  const layers = activeTab().layers;
+  if (layers.length < 2) return toast('A tab needs at least one layer.');
   const l = activeLayer();
-  const i = p.layers.indexOf(l);
-  mutate(p => p.layers.splice(i, 1));
-  state.activeLayerId = p.layers[Math.max(0, i - 1)].id;
+  const i = layers.indexOf(l);
+  mutate(() => layers.splice(i, 1));
+  state.activeLayerId = layers[Math.max(0, i - 1)].id;
   select([]);
 }
 
 export function moveLayer(step) {
-  const p = state.project;
+  const layers = activeTab().layers;
   const l = activeLayer();
-  const i = p.layers.indexOf(l), to = i + step;
-  if (to < 0 || to >= p.layers.length) return;
-  mutate(p => { p.layers.splice(i, 1); p.layers.splice(to, 0, l); });
+  const i = layers.indexOf(l), to = i + step;
+  if (to < 0 || to >= layers.length) return;
+  mutate(() => { layers.splice(i, 1); layers.splice(to, 0, l); });
+}
+
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+
+// A new, empty tab at the end, the same size as the first tab.
+export function addTab() {
+  const tabs = state.project.tabs;
+  const n = tabs.length + 1;
+  let name = `Tab ${n}`;
+  for (let k = n; tabs.some(t => t.name === name); k++) name = `Tab ${k + 1}`;
+  const t = makeTab(name, tabs[0].cols, tabs[0].rows);
+  mutate(() => tabs.push(t));
+  switchTab(t.id);
+}
+
+// A copy of a tab (everything on it), right after it.
+export function duplicateTab(id) {
+  const tabs = state.project.tabs;
+  const src = tabs.find(t => t.id === id);
+  if (!src) return;
+  const t = { ...structuredClone(src), id: uid(), name: src.name + ' copy' };
+  t.layers.forEach(l => { l.id = uid(); l.objects = l.objects.map(cloneObject); });
+  mutate(() => tabs.splice(tabs.indexOf(src) + 1, 0, t));
+  switchTab(t.id);
+}
+
+export function renameTab(id, name) {
+  const t = state.project.tabs.find(t => t.id === id);
+  if (t && name.trim()) mutate(() => { t.name = name.trim(); });
+}
+
+export function deleteTab(id) {
+  const tabs = state.project.tabs;
+  if (tabs.length < 2) return toast('A project needs at least one tab.');
+  const i = tabs.findIndex(t => t.id === id);
+  if (i < 0) return;
+  if (id === state.tabId) switchTab(tabs[i ? i - 1 : 1].id);
+  mutate(() => tabs.splice(i, 1));
+}
+
+// Move a tab to position `to` (0 = first).
+export function moveTab(id, to) {
+  const tabs = state.project.tabs;
+  const i = tabs.findIndex(t => t.id === id);
+  to = Math.max(0, Math.min(tabs.length - 1, to));
+  if (i < 0 || i === to) return;
+  mutate(() => { const [t] = tabs.splice(i, 1); tabs.splice(to, 0, t); });
 }
 
 // ── Insert / clipboard ───────────────────────────────────────────────────────
@@ -216,7 +266,7 @@ export function setRenderer(r) { renderer = r; }
 
 // Top-left cell that centers a w×h block in the visible part of the canvas.
 export function viewCenterCell(w = 0, h = 0) {
-  const p = state.project;
+  const p = activeTab();
   let cx = Math.floor(p.cols / 2), cy = Math.floor(p.rows / 2);
   if (renderer) {
     const r = renderer.canvas.getBoundingClientRect();
@@ -250,8 +300,8 @@ export function insertObjects(objects, at = null, { groupName = '' } = {}) {
 export function selectionText() {
   const sel = selected();
   if (!sel.length) return '';
-  const p = state.project;
-  const grid = compositeObjects(sel, p.cols, p.rows, p.mergeJunctions !== false);
+  const p = activeTab();
+  const grid = compositeObjects(sel, p.cols, p.rows, state.project.mergeJunctions !== false);
   const b = unionBounds(sel.map(bounds));
   const x1 = Math.max(0, b.x), y1 = Math.max(0, b.y);
   const x2 = Math.min(p.cols, b.x + b.w), y2 = Math.min(p.rows, b.y + b.h);

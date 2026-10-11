@@ -8,24 +8,40 @@ zero-based from the top-left of the canvas.
 
 ```json
 {
-  "otis": 1,
+  "otis": 2,
   "id": "k3j9x2",
   "name": "GenX dashboard",
-  "cols": 120,
-  "rows": 40,
   "font": { "family": "GeistMono Nerd Font", "size": 16, "lineHeight": 1.2 },
   "palette": { "id": "tokyo-night", "name": "Tokyo Night", "mode": "dark", "colors": { "background": "#1a1b26", "...": "..." } },
   "background": "background",
   "foreground": "foreground",
-  "layers": [
-    { "id": "a1", "name": "Layer 1", "visible": true, "locked": false, "objects": [] }
+  "mergeJunctions": true,
+  "tabs": [
+    {
+      "id": "main", "name": "Main", "cols": 120, "rows": 40,
+      "layers": [
+        { "id": "a1", "name": "Layer 1", "visible": true, "locked": false, "objects": [] }
+      ]
+    }
   ]
 }
 ```
 
+- `tabs` are the screens of the design, in the order the tab bar shows them.
+  Each has its own canvas size (`cols` × `rows`) and layers. A project has at
+  least one tab.
 - `layers[0]` is the **bottom** layer. Objects inside a layer draw in array
   order, so the last object is on top.
-- `palette` is a full copy of the palette, so a project file is self-contained.
+- Object ids are unique across the whole project, not just within a tab.
+- `palette`, `font`, `background` and `foreground` apply to every tab.
+  `palette` is a full copy of the palette, so a project file is self-contained.
+
+### Version 1
+
+Files from OTIS 0.3 and earlier have `"otis": 1` and one canvas: `cols`,
+`rows` and `layers` sit at the top level instead of in `tabs`. OTIS opens
+them as a single tab with the id `main` and the name "Main", and saves them
+as version 2.
 
 ## Colors
 
@@ -86,13 +102,28 @@ Both are rectangular frames with an optional border and optional text. The
 - `borderChars`: with `custom`, 8 characters in the order
   top-left, top, top-right, right, bottom-right, bottom, bottom-left, left.
 - `fill`: `null` leaves the interior transparent; a character (usually `" "`)
-  paints every interior cell with that character in `fg`/`bg`.
+  paints every interior cell with that character in `fg`/`bg`. A fill hides
+  everything underneath, background colors included. Without `bg` those
+  cells show the canvas background.
 - `padding`: blank columns between the border and the text, left and right.
 - `autoSize` (text objects): `w`/`h` follow the text instead of wrapping.
 - `transparent`: spaces in the text let what's underneath show through
   (for ASCII art). Otherwise typed spaces cover what's below.
 - A space with no background never paints, so text and ASCII art are
   transparent around their characters unless `bg` or `fill` is set.
+
+A **TextArt** object is a `text` object with an `art` field saying how its
+`text` was drawn. OTIS draws the big letters again when any of it changes.
+
+```json
+{ "type": "text", "x": 4, "y": 1, "text": "██╗  ██╗…", "transparent": true, "autoSize": true,
+  "art": { "text": "Hi", "font": "blocks-3d", "size": "m" } }
+```
+
+- `font`: `blocks-3d` `blocks` `standard` `slant` `shadow` `script` `lean`
+  `block` `bubble` `digital` `mini` (see `TEXTART_FONTS` in `textart.js`).
+- `size`: `s`, `m` or `l`. Not every font comes in every size; OTIS uses the
+  nearest one it has.
 
 ### `line`
 
@@ -180,7 +211,7 @@ Snippet objects are stored relative to `0,0`.
 
 ## Markdown export
 
-Markdown export writes the visible canvas as plain text inside a fenced code
-block. Colors and fonts can't be carried by Markdown. With **Embed project**
+Markdown export writes the open tab as plain text inside a fenced code
+block, or every tab, each under a `## Tab name` heading. Colors and fonts can't be carried by Markdown. With **Embed project**
 on, the full project JSON is appended inside an HTML comment
 (`<!-- otis-project ... -->`), so OTIS can open the `.md` file again.

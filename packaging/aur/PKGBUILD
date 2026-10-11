@@ -3,7 +3,7 @@
 # this one in the OTIS repo is the source for it (see CONTRIBUTING.md, Releasing).
 
 pkgname=otis
-pkgver=0.3.0
+pkgver=0.4.0
 pkgrel=1
 pkgdesc='Design terminal UIs on a character grid: boxes, text, tables, layers and Omarchy themes'
 arch=('any')

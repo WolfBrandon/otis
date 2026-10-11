@@ -1,7 +1,7 @@
 // Top bar menus and the New / Open / Export / Shortcuts dialogs.
 
 import { el, $, toast, modal, confirmDialog, download, pickFile, slug } from './ui.js';
-import { state, on, emit, setProject, mutate, undo, redo, canUndo, canRedo } from './state.js';
+import { state, on, emit, setProject, mutate, undo, redo, canUndo, canRedo, activeTab } from './state.js';
 import { makeProject, makeText, uid } from './model.js';
 import { composite } from './composite.js';
 import { toText, toMarkdown, toAnsi, contentRect, projectFromMarkdown } from './export.js';
@@ -81,7 +81,7 @@ export async function openFile() {
         font: state.project ? { ...state.project.font } : undefined,
         palette: state.project ? structuredClone(state.project.palette) : null,
       });
-      p.layers[0].objects.push(makeText(0, 0, text, { transparent: true }));
+      p.tabs[0].layers[0].objects.push(makeText(0, 0, text, { transparent: true }));
       importProject(p, f.name);
     } else importProject(JSON.parse(f.text), f.name);
     return true;
@@ -109,7 +109,7 @@ export async function openDialog() {
         try { setProject(await storage.loadProject(p.id)); lastProject.set(p.id); done(); }
         catch (e) { toast(e.message); }
       },
-    }, el('strong', {}, p.name || p.id), el('span.meta', {}, `${p.cols}×${p.rows} · ${ago(p.updated)}`)),
+    }, el('strong', {}, p.name || p.id), el('span.meta', {}, `${p.cols}×${p.rows}${p.tabs > 1 ? ` · ${p.tabs} tabs` : ''} · ${ago(p.updated)}`)),
     el('button.icon.danger', {
       type: 'button', title: 'Delete project',
       onclick: async e => {
@@ -152,21 +152,29 @@ const FORMATS = [
 ];
 
 function loadOpts() {
-  const d = { format: 'md', crop: false, trim: true, heading: true, embed: false, ansi: 'theme', scale: 2 };
+  const d = { format: 'md', crop: false, trim: true, heading: true, embed: false, allTabs: false, ansi: 'theme', scale: 2 };
   try { return { ...d, ...JSON.parse(localStorage.getItem('otis:export') || '{}') }; } catch { return d; }
 }
 
 export async function exportDialog() {
   const p = state.project;
-  const grid = composite(p);
+  const tab = activeTab();
+  const grid = composite(p, { tab });
+  const multi = p.tabs.length > 1;
   const o = loadOpts();
+  const allTabs = () => multi && o.allTabs && o.format === 'md';
+  // a single tab of a project with several gets its name in the file name
+  const base = () => fileBase() + (multi && !allTabs() && o.format !== 'json' ? '-' + slug(tab.name) : '');
   const preview = el('div.export-preview');
   const opts = el('div.export-opts');
   const note = el('p.hint');
 
   const output = () => {
     switch (o.format) {
-      case 'md': return toMarkdown(p, grid, { heading: o.heading, embed: o.embed, trim: o.trim, crop: o.crop });
+      case 'md': return toMarkdown(p, grid, {
+        heading: o.heading, embed: o.embed, trim: o.trim, crop: o.crop,
+        tabs: allTabs() ? p.tabs.map(t => ({ name: t.name, grid: composite(p, { tab: t }) })) : null,
+      });
       case 'txt': return toText(grid, { trim: o.trim, crop: o.crop }) + '\n';
       case 'ansi': return toAnsi(grid, p, { mode: o.ansi, crop: o.crop });
       case 'json': return projectJSON(p);
@@ -183,6 +191,7 @@ export async function exportDialog() {
     if (o.format !== 'json') parts.push(chk('crop', 'Crop to content'));
     if (['md', 'txt'].includes(o.format)) parts.push(chk('trim', 'Trim trailing spaces'));
     if (o.format === 'md') parts.push(chk('heading', 'Project name as heading'), chk('embed', 'Embed project (re-open the .md in OTIS)'));
+    if (o.format === 'md' && multi) parts.push(chk('allTabs', `All ${p.tabs.length} tabs, each under its own heading`));
     if (o.format === 'ansi') parts.push(el('label.field', {}, el('span.label', {}, 'Colors'), el('select', { onchange: e => { o.ansi = e.target.value; update(); } },
       el('option', { value: 'theme', selected: o.ansi === 'theme' }, 'Follow the terminal theme (16 colors)'),
       el('option', { value: 'truecolor', selected: o.ansi === 'truecolor' }, 'Exact colors (24-bit)'))));
@@ -193,10 +202,11 @@ export async function exportDialog() {
     note.textContent = {
       md: 'Markdown carries characters only — colors, fonts and styles are left out.',
       txt: 'Characters only.',
-      ansi: 'View it in a terminal with:  cat ' + fileBase() + '.ans',
+      ansi: 'View it in a terminal with:  cat ' + base() + '.ans',
       png: 'Rendered with the fonts installed on this computer.',
-      json: 'The full project, to open again in OTIS or keep in git.',
+      json: 'The full project with every tab, to open again in OTIS or keep in git.',
     }[o.format];
+    if (multi && !allTabs() && o.format !== 'json') note.textContent = `The tab \u201c${tab.name}\u201d. ` + note.textContent;
 
     if (o.format === 'png') {
       const blob = await renderPNG(p, grid, { scale: o.scale, rect: o.crop ? contentRect(grid) : null });
@@ -220,7 +230,7 @@ export async function exportDialog() {
   ], { wide: true });
   if (!result) return;
   const ext = FORMATS.find(f => f[0] === o.format)[2];
-  const name = fileBase() + ext;
+  const name = base() + ext;
   if (o.format === 'png') {
     const blob = await renderPNG(p, grid, { scale: o.scale, rect: o.crop ? contentRect(grid) : null });
     if (result === 'copy') {
@@ -239,9 +249,9 @@ export async function exportDialog() {
 // ── Help ─────────────────────────────────────────────────────────────────────
 
 const SHORTCUTS = [
-  ['Tools', [['V', 'Select & move'], ['B', 'Box'], ['T', 'Text'], ['A / L', 'Arrow / line'], ['#', 'Table'], ['C', 'Cursor'], ['K', 'Block fill'], ['P', 'Pencil'], ['E', 'Eraser'], ['H / Space', 'Pan']]],
+  ['Tools', [['V', 'Select & move'], ['B', 'Box'], ['T', 'Text'], ['Shift+T', 'TextArt (big letters)'], ['A / L', 'Arrow / line'], ['#', 'Table'], ['C', 'Cursor'], ['K', 'Block fill'], ['P', 'Pencil'], ['E', 'Eraser'], ['H / Space', 'Pan']]],
   ['Edit', [['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'], ['Ctrl+C / X / V', 'Copy / cut / paste (pastes text as a text object)'], ['Ctrl+D', 'Duplicate'], ['Alt+drag', 'Duplicate while moving'], ['Delete', 'Delete'], ['Arrows (Shift)', 'Nudge 1 (5) cells'], ['Ctrl+G / Ctrl+Shift+G', 'Group / ungroup'], ['[ ] / { }', 'Backward, forward / to back, to front'], ['Ctrl+A', 'Select all'], ['Enter / double-click', 'Edit text or a table cell'], ['Tab / Shift+Tab', 'Next / previous table cell'], ['Esc', 'Stop editing / deselect']]],
-  ['View', [['Scroll', 'Pan'], ['Ctrl+scroll', 'Zoom'], ['+ / −', 'Zoom in / out'], ['0', 'Zoom to fit'], ['1', 'Actual size'], ['G', 'Toggle grid']]],
+  ['View', [['Alt+PageUp / PageDown', 'Previous / next tab'], ['Scroll', 'Pan'], ['Ctrl+scroll', 'Zoom'], ['+ / −', 'Zoom in / out'], ['0', 'Zoom to fit'], ['1', 'Actual size'], ['G', 'Toggle grid']]],
   ['File', [['Ctrl+S', 'Save now (saves automatically too)'], ['Ctrl+O', 'Open'], ['Ctrl+E', 'Export']]],
 ];
 
@@ -278,7 +288,8 @@ function aboutDialog() {
     } else {
       status.className = 'version-status outdated';
       status.replaceChildren(appVersion ? 'Version ' : 'The latest release is ', link, appVersion ? ' is available. ' : '. ',
-        'To update, run ', el('code', {}, 'git pull && ./install.sh'), ' in the OTIS folder, or update the package if you installed one.');
+        'To update, run the installer again (', el('code', {}, 'curl -fsSL https://raw.githubusercontent.com/WolfBrandon/otis/main/install.sh | bash'),
+        '), ask your AI agent to update OTIS, or update the package if you installed one.');
     }
   });
 }
@@ -331,6 +342,7 @@ function menus() {
       ['   Reset panel layout', resetLayout],
     ],
     help: [
+      ['How-to guide', () => window.open(REPO_URL + '/blob/main/docs/HOWTO.md', '_blank', 'noopener')],
       ['Keyboard shortcuts', helpDialog, true, '?'],
       ['File format', () => window.open('https://github.com/WolfBrandon/otis/blob/main/docs/FORMAT.md', '_blank', 'noopener')],
       ['About OTIS', aboutDialog],

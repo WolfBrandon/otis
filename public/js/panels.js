@@ -2,7 +2,7 @@
 
 import { el, $, prompt, confirmDialog } from './ui.js';
 import { icon } from './icons.js';
-import { state, on, emit, mutate, find, selected, select, setTool, setBrush, activeLayer } from './state.js';
+import { state, on, emit, mutate, find, selected, select, setTool, setBrush, activeLayer, activeTab } from './state.js';
 import {
   BORDERS, BORDER_NAMES, LINE_NAMES, LINES, CAP_NAMES, TYPE_NAMES, BLOCK_GLYPHS, CURSOR_GLYPHS,
   displayName, fitText, bounds, walk, chars, TABLE_BORDERS, resizeTable,
@@ -13,8 +13,10 @@ import * as A from './actions.js';
 import { FONTS, isInstalled, localMonospaceFonts, rememberFont } from './fonts.js';
 import { pointer } from './tools.js';
 import { setHeader, panelBody } from './sidebar.js';
+import { TEXTART_FONTS, TEXTART_SIZES } from './textart.js';
+import { updateArt } from './artdialog.js';
 
-export const hooks = { saveSnippet: null, showGlyphs: null };
+export const hooks = { saveSnippet: null, showGlyphs: null, textArt: null };
 
 // ── Form helpers ─────────────────────────────────────────────────────────────
 
@@ -123,7 +125,9 @@ function renderProps() {
 
 function canvasProps() {
   const p = state.project;
+  const tab = activeTab();
   const set = (patch, key) => mutate(pr => Object.assign(pr, patch), { coalesce: 'canvas:' + key });
+  const size = (patch, key) => mutate(() => Object.assign(activeTab(), patch), { coalesce: 'canvas:' + key + ':' + tab.id });
   const presets = [['', 'Presets…'], ['80x24', '80 × 24 (classic)'], ['100x30', '100 × 30'], ['120x40', '120 × 40'], ['160x50', '160 × 50'], ['200x60', '200 × 60']];
   const fontOpts = [...new Set([p.font.family, ...FONTS, ...extraFonts])].map(f => [f, (isInstalled(f) ? '' : '⚠ ') + f]);
   const fontWarn = isInstalled(p.font.family) ? null
@@ -132,10 +136,10 @@ function canvasProps() {
     head('Canvas'),
     group(null,
       field('Name', txt(p.name, v => set({ name: v }, 'name'))),
-      field('Size',
-        num(p.cols, v => set({ cols: v }, 'cols'), { min: 1, max: 1000, width: '.w4' }), el('span.x', {}, '×'),
-        num(p.rows, v => set({ rows: v }, 'rows'), { min: 1, max: 1000, width: '.w4' }),
-        sel(presets, '', v => { if (v) { const [c, r] = v.split('x').map(Number); set({ cols: c, rows: r }, 'size'); } })),
+      field(p.tabs.length > 1 ? 'Tab size' : 'Size',
+        num(tab.cols, v => size({ cols: v }, 'cols'), { min: 1, max: 1000, width: '.w4' }), el('span.x', {}, '×'),
+        num(tab.rows, v => size({ rows: v }, 'rows'), { min: 1, max: 1000, width: '.w4' }),
+        sel(presets, '', v => { if (v) { const [c, r] = v.split('x').map(Number); size({ cols: c, rows: r }, 'size'); } })),
     ),
     group('Font',
       field('Family', sel(fontOpts, p.font.family, v => { set({ font: { ...p.font, family: v } }, 'font'); rememberFont(v); })),
@@ -180,7 +184,7 @@ function objectProps(o) {
   const rows = [];
   const b = bounds(o);
 
-  rows.push(head(TYPE_NAMES[o.type] || o.type,
+  rows.push(head(o.art ? 'TextArt' : TYPE_NAMES[o.type] || o.type,
     iconBtn('copy', 'Duplicate (Ctrl+D)', () => A.duplicate()),
     iconBtn('trash', 'Delete (Del)', () => A.deleteSelection())));
   rows.push(group(null, field('Name', txt(o.name, v => set({ name: v }, 'name'), { placeholder: displayName({ ...o, name: '' }) }))));
@@ -205,6 +209,7 @@ function objectProps(o) {
   }
 
   // type-specific
+  if (o.art) rows.push(artProps(o));
   if (o.type === 'box' || o.type === 'text') rows.push(...frameProps(o, set));
   if (o.type === 'table') rows.push(...tableProps(o, set));
   if (o.type === 'line') rows.push(group('Line',
@@ -232,6 +237,21 @@ function objectProps(o) {
   rows.push(styleGroup([o], o));
   rows.push(arrangeGroup(hit));
   return rows;
+}
+
+// A TextArt object's text, font and size; changing one draws it again.
+function artProps(o) {
+  const font = TEXTART_FONTS.find(f => f.id === o.art.font) || TEXTART_FONTS[0];
+  const change = (patch, f) => updateArt(o.id, patch, o.id + ':art-' + f);
+  return group('TextArt',
+    field('Text', txt(o.art.text, v => change({ text: v }, 'text'))),
+    field('Font', sel(TEXTART_FONTS.map(f => [f.id, f.name]), font.id, v => change({ font: v }, 'font'))),
+    field('Size', el('div.seg', {}, ...TEXTART_SIZES.map(([k, label]) => el('button' + (k === o.art.size ? '.on' : ''), {
+      type: 'button', disabled: !font.sizes[k], title: font.sizes[k] ? label : `${font.name} has no ${label.toLowerCase()} size`,
+      onclick: () => change({ size: k }, 'size'),
+    }, label)))),
+    field('', el('button', { type: 'button', onclick: () => hooks.textArt?.(o) }, 'Preview fonts…')),
+  );
 }
 
 const borderLabel = k => k in BORDERS ? `${BORDERS[k].slice(0, 3)}  ${BORDER_NAMES[k]}` : BORDER_NAMES[k];
@@ -282,8 +302,9 @@ function frameProps(o, set) {
     o.border && o.border !== 'none' ? field('Title', txt(o.title, v => set({ title: v }, 'title'), { placeholder: 'Shown on the top border' })) : null,
     o.border && o.border !== 'none' && o.title ? field('Title align', seg([['left', 'Left'], ['center', 'Center'], ['right', 'Right']], o.titleAlign, v => set({ titleAlign: v }, 'talign'))) : null,
   ));
-  const ta = el('textarea', { rows: Math.min(10, Math.max(3, (o.text || '').split('\n').length + 1)), spellcheck: false, placeholder: 'Type text… (or double-click the object on the canvas)' }, o.text || '');
-  ta.addEventListener('input', () => set({ text: ta.value }, 'text'));
+  // TextArt draws its own characters, so it has no text box here
+  const ta = o.art ? null : el('textarea', { rows: Math.min(10, Math.max(3, (o.text || '').split('\n').length + 1)), spellcheck: false, placeholder: 'Type text… (or double-click the object on the canvas)' }, o.text || '');
+  ta?.addEventListener('input', () => set({ text: ta.value }, 'text'));
   out.push(group('Text',
     ta,
     field('Align', seg([['left', '⇤'], ['center', '↔'], ['right', '⇥']], o.align, v => set({ align: v }, 'align')),
@@ -325,7 +346,7 @@ function styleGroup(objs, single = null) {
 }
 
 function arrangeGroup(hit) {
-  const layers = [...state.project.layers].reverse();
+  const layers = [...activeTab().layers].reverse();
   return group('Arrange',
     field('Order', el('div.seg', {},
       el('button', { type: 'button', title: 'Bring to front (})', onclick: () => A.arrange(Infinity) }, '⤒'),
@@ -400,7 +421,7 @@ function startObjectDrag(e, o, layer) {
   // object row (drop just above or below it, as it appears in the list).
   const dropTarget = (x, y) => {
     const hit = document.elementFromPoint(x, y)?.closest('#layers [data-layer]');
-    const dest = hit && state.project.layers.find(l => l.id === hit.dataset.layer);
+    const dest = hit && activeTab().layers.find(l => l.id === hit.dataset.layer);
     if (!dest || dest.locked) return null;
     const r = hit.getBoundingClientRect();
     if (!hit.dataset.id) return { layerId: dest.id, place: null, el: hit };
@@ -448,7 +469,7 @@ function startObjectDrag(e, o, layer) {
 }
 
 function renderLayers() {
-  const p = state.project;
+  const p = activeTab();
   const root = panelBody('layers');
   const selIds = new Set(state.selection);
   const list = el('ul.layer-list');
@@ -528,6 +549,7 @@ function renderToolbar() {
     ...TOOL_LIST.map(([t, label, key]) => el('button.tool' + (state.tool === t ? '.on' : ''), {
       type: 'button', title: `${label} (${key})`, 'aria-label': label, onclick: () => setTool(t),
     }, icon(t === 'hand' ? 'hand' : t, 20))),
+    el('button.tool', { type: 'button', title: 'TextArt: big letters from text (Shift+T)', 'aria-label': 'TextArt', onclick: () => hooks.textArt?.() }, icon('textart', 20)),
     el('div.sep'),
     el('div.brush-colors', {},
       el('div.brush-fg', { title: 'Text color for new objects' }, colorChip(b.fg, v => setBrush({ fg: v }))),
@@ -590,14 +612,14 @@ function renderOptions() {
 // ── Status bar ───────────────────────────────────────────────────────────────
 
 function renderStatus() {
-  const p = state.project;
+  const p = activeTab();
   const sel = selected();
   let s = '';
   if (sel.length === 1) { const b = bounds(sel[0]); s = `${displayName(sel[0])} · ${b.w}×${b.h} at ${b.x},${b.y}`; }
   else if (sel.length) s = `${sel.length} objects selected`;
   $('#st-pos').textContent = pointer.inside ? `${pointer.x}, ${pointer.y}` : '–';
   $('#st-sel').textContent = s;
-  $('#st-size').textContent = `${p.cols}×${p.rows} · ${activeLayer().name}`;
+  $('#st-size').textContent = `${state.project.tabs.length > 1 ? p.name + ' · ' : ''}${p.cols}×${p.rows} · ${activeLayer().name}`;
 }
 
 // ── Wiring ───────────────────────────────────────────────────────────────────
@@ -614,6 +636,7 @@ export function initPanels() {
     renderStatus();
   });
   on('project', () => { expanded.clear(); queueProps(); queueLayers(); });
+  on('tab', () => { queueProps(); queueLayers(); });
   on('tool', () => { renderToolbar(); renderOptions(); });
   on('pointer', renderStatus);
   panelBody('props').addEventListener('focusout', () => setTimeout(() => {

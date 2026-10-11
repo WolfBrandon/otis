@@ -42,16 +42,18 @@ a { color: var(--accent); }
   display: grid;
   height: 100vh;
   grid-template-columns: 50px minmax(0, 1fr) var(--sidebar-w, 300px);
-  grid-template-rows: 42px 40px minmax(0, 1fr) 24px;
+  grid-template-rows: 42px 40px 34px minmax(0, 1fr) 24px;
   grid-template-areas:
     "top top top"
     "tools opts side"
+    "tools tabs side"
     "tools stage side"
     "status status status";
 }
 #topbar { grid-area: top; }
 #toolbar { grid-area: tools; }
 #options { grid-area: opts; }
+#tabbar { grid-area: tabs; }
 #stage { grid-area: stage; }
 #sidebar { grid-area: side; }
 #statusbar { grid-area: status; }
@@ -141,6 +143,37 @@ input[type="checkbox"] { accent-color: var(--accent); margin: 0; }
 .border-opt pre { margin: 0; font: 11px/1 var(--ui-font); }
 .border-opt.on, .glyph.on { background: var(--sel); border-color: var(--accent); color: var(--accent); }
 button.glyph { min-width: 28px; height: 26px; padding: 0 4px; font-size: 15px; background: transparent; }
+
+/* ── Tab bar ── */
+#tabbar {
+  position: relative; display: flex; align-items: flex-end; gap: 2px; padding: 0 8px;
+  background: var(--stage); border-bottom: 1px solid var(--border); min-width: 0;
+}
+#tabbar .tabs { display: flex; align-items: flex-end; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tab {
+  position: relative; display: flex; align-items: center; gap: 2px; height: 28px; padding: 0 2px 0 12px;
+  margin-bottom: -1px; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0;
+  color: var(--muted); white-space: nowrap; cursor: pointer; user-select: none; flex: none;
+}
+.tab:hover { color: var(--text); background: var(--hover); }
+.tab.on { color: var(--text); background: var(--panel); border-color: var(--border); font-weight: 700; }
+.tab.on::after { content: ""; position: absolute; left: 8px; right: 8px; top: -1px; height: 2px; background: var(--accent); border-radius: 2px; }
+.tab.moving { opacity: 0.5; }
+.tab-name { padding-right: 2px; }
+.tab .tab-more { padding: 2px; opacity: 0; }
+.tab:hover .tab-more, .tab.on .tab-more, .tab .tab-more:focus-visible { opacity: 1; }
+.tab-rename { width: auto; padding: 1px 4px; font-weight: 700; margin-right: 2px; }
+.tab-add { margin: 0 0 3px 2px; flex: none; }
+.tab-drop { position: absolute; top: 5px; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; }
+
+/* ── TextArt dialog ── */
+.textart .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.textart input[type="text"] { width: 100%; }
+.textart-preview {
+  margin: 10px 0 4px; padding: 14px; min-height: 60px; max-height: 45vh; overflow: auto;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--stage);
+}
+.textart-preview canvas { display: block; }
 
 /* ── Stage ── */
 #stage { position: relative; overflow: hidden; background: var(--stage); min-width: 0; min-height: 0; }
@@ -348,7 +381,7 @@ dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 10p
 .version-status { color: var(--muted); }
 .version-status.current { color: var(--accent); }
 .version-status.outdated { color: var(--danger); }
-.version-status code { font-family: var(--ui-font); color: var(--text); }
+.version-status code { font-family: var(--ui-font); color: var(--text); overflow-wrap: anywhere; user-select: all; }
 
 #toast {
   position: fixed; left: 50%; bottom: 40px; transform: translate(-50%, 20px); z-index: 2000;

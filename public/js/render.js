@@ -4,8 +4,8 @@
 import { drawGlyph } from './boxchars.js';
 import { resolveColor } from './palette.js';
 import { ATTR, composite } from './composite.js';
-import { state, on, emit, editTarget, selected } from './state.js';
-import { bounds, RESIZABLE, caretCell, tableEdges } from './model.js';
+import { state, on, emit, editTarget, selected, activeTab } from './state.js';
+import { bounds, unionBounds, RESIZABLE, caretCell, tableEdges } from './model.js';
 
 export function fontStack(family) {
   return `"${family}", ui-monospace, "DejaVu Sans Mono", monospace`;
@@ -109,6 +109,7 @@ export class Renderer {
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement);
     on('doc', () => this.invalidate(true));
     on('project', () => { this.remeasure(); this.fit(); });
+    on('tab', e => { if (e?.resized) this.fit(); });
     for (const e of ['view', 'selection', 'tool']) on(e, () => this.invalidate());
     setInterval(() => {
       const on = state.view.blink && this.grid?.hasBlink;
@@ -169,7 +170,7 @@ export class Renderer {
 
   getGrid() {
     if (this.dirtyGrid || !this.grid) {
-      this.grid = composite(state.project);
+      this.grid = composite(state.project, { tab: activeTab() });
       this.grid.hasBlink = this.grid.attr.some(a => a & ATTR.blink);
       this.dirtyGrid = false;
     }
@@ -208,8 +209,8 @@ export class Renderer {
 
   // Zoom so the whole canvas fits the stage.
   fit() {
-    const p = state.project;
-    if (!p) return;
+    if (!state.project) return;
+    const p = activeTab();
     this.syncMetrics();
     const r = this.canvas.parentElement.getBoundingClientRect();
     if (!r.width) return;
@@ -220,21 +221,24 @@ export class Renderer {
     emit('view');
   }
 
-  // Resize/endpoint handles for the current single selection, in CSS px.
+  // Handles for the selection, in CSS px: endpoints of a line, resize
+  // handles of a box, text or block, and scale handles around several
+  // objects or a group.
   handles() {
     const sel = selected();
-    if (sel.length !== 1 || state.editing) return [];
+    if (!sel.length || state.editing) return [];
     const o = sel[0];
-    if (o.type === 'line') return o.points.map((p, i) => {
+    if (sel.length === 1 && o.type === 'line') return o.points.map((p, i) => {
       const c = this.cellToCss(p[0] + 0.5, p[1] + 0.5);
       return { kind: 'point', index: i, x: c.x, y: c.y };
     });
-    if (!RESIZABLE.has(o.type)) return [];
-    const b = bounds(o);
+    const kind = sel.length > 1 || o.type === 'group' ? 'scale' : RESIZABLE.has(o.type) ? 'resize' : null;
+    if (!kind) return [];
+    const b = unionBounds(sel.map(bounds));
     const a = this.cellToCss(b.x, b.y), z = this.cellToCss(b.x + b.w, b.y + b.h);
     const mx = (a.x + z.x) / 2, my = (a.y + z.y) / 2;
     const pos = { nw: [a.x, a.y], n: [mx, a.y], ne: [z.x, a.y], e: [z.x, my], se: [z.x, z.y], s: [mx, z.y], sw: [a.x, z.y], w: [a.x, my] };
-    return HANDLE_DIRS.map(d => ({ kind: 'resize', dir: d, x: pos[d][0], y: pos[d][1] }));
+    return HANDLE_DIRS.map(d => ({ kind, dir: d, x: pos[d][0], y: pos[d][1] }));
   }
 
   draw() {
@@ -245,14 +249,15 @@ export class Renderer {
     const grid = this.getGrid();
     const { cw, ch, ox, oy } = this.cell;
     const C = this.chrome;
+    const { cols, rows } = activeTab();
 
     ctx.fillStyle = C.stage || '#101014';
     ctx.fillRect(0, 0, W, H);
 
     // visible cell range
     const c0 = Math.max(0, Math.floor(-ox / cw)), r0 = Math.max(0, Math.floor(-oy / ch));
-    const c1 = Math.min(p.cols, Math.ceil((W - ox) / cw)), r1 = Math.min(p.rows, Math.ceil((H - oy) / ch));
-    const gw = p.cols * cw, gh = p.rows * ch;
+    const c1 = Math.min(cols, Math.ceil((W - ox) / cw)), r1 = Math.min(rows, Math.ceil((H - oy) / ch));
+    const gw = cols * cw, gh = rows * ch;
 
     // drop shadow + frame
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
@@ -280,13 +285,21 @@ export class Renderer {
       ctx.strokeRect(ox + hv.x * cw + 0.5, oy + hv.y * ch + 0.5, cw - 1, ch - 1);
     }
 
-    // selection outlines
+    // selection outlines, and a dashed one around several objects
     ctx.lineWidth = Math.max(1, Math.round(d));
-    for (const o of selected()) {
+    const sel = selected();
+    for (const o of sel) {
       const [x, y, w, h] = rectPx(bounds(o));
       ctx.strokeStyle = accent;
       ctx.setLineDash(o.type === 'group' ? [4 * d, 3 * d] : []);
       ctx.strokeRect(x - 0.5, y - 0.5, w + 1, h + 1);
+    }
+    if (sel.length > 1 && !state.editing) {
+      const [x, y, w, h] = rectPx(unionBounds(sel.map(bounds)));
+      ctx.globalAlpha = 0.6;
+      ctx.setLineDash([2 * d, 3 * d]);
+      ctx.strokeRect(x - 0.5, y - 0.5, w + 1, h + 1);
+      ctx.globalAlpha = 1;
     }
     ctx.setLineDash([]);
 
@@ -303,7 +316,6 @@ export class Renderer {
     }
 
     // table edges you can drag
-    const sel = selected();
     if (sel.length === 1 && sel[0].type === 'table' && !state.editing) {
       const o = sel[0], E = tableEdges(o);
       const s = Math.max(3, Math.round(3 * d));

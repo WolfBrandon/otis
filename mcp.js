@@ -14,8 +14,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  makeBox, makeText, makeLine, makeBlock, makeCursor, makePaint, makeTable, makeGroup, makeLayer,
-  makeProject, bounds, translate, fitText, cloneObject, resizeTable, layoutText, frameInset,
+  makeBox, makeText, makeLine, makeBlock, makeCursor, makePaint, makeTable, makeGroup, makeLayer, makeTab,
+  makeProject, uid, bounds, translate, fitText, cloneObject, resizeTable, layoutText, frameInset,
 } from './public/js/model.js';
 import { composite } from './public/js/composite.js';
 import { toText, toMarkdown, toAnsi, contentRect } from './public/js/export.js';
@@ -23,6 +23,7 @@ import { normalizeProject } from './public/js/state.js';
 import { THEMES } from './public/js/themes.js';
 import { SLOTS, parseThemeFile } from './public/js/palette.js';
 import { BUILTIN_SNIPPETS } from './public/js/snippets.js';
+import { renderTextArt, fitSize, TEXTART_FONTS } from './public/js/textart.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BASE = (process.env.OTIS_URL || 'http://127.0.0.1:6847').replace(/\/+$/, '');
@@ -93,19 +94,25 @@ async function load(id) {
 }
 
 // Load, change, save. If the user saved in between (412), redo the change on
-// the fresh copy so neither side's work is lost.
-async function edit(ref, change) {
+// the fresh copy so neither side's work is lost. `change` gets the tab named
+// by `tab` (default: the one open in OTIS).
+async function edit(ref, change, { tab: tabRef } = {}) {
   const id = await projectId(ref);
+  const cur = await current();
   for (let attempt = 1; ; attempt++) {
     const { project, etag } = await load(id);
     const notes = [];
-    const result = await change(project, notes);
+    const tab = findTab(project, tabRef, cur);
+    const result = await change(project, notes, tab);
     const res = await call('PUT', 'projects/' + id, project, { 'If-Match': etag });
     if (res.status === 412 && attempt < 4) continue;
     if (!res.ok) throw new ToolError('Saving failed: ' + ((await res.json().catch(() => null))?.error || res.status));
-    return { project, notes, result };
+    return { project, notes, result, tab: project.tabs.includes(result?.tab) ? result.tab : tab };
   }
 }
+
+// What the OTIS window has open: { id, tab, selection }.
+const current = () => json('GET', 'current').catch(() => ({}));
 
 // ── Themes and snippets ──────────────────────────────────────────────────────
 
@@ -153,6 +160,7 @@ async function allSnippets() {
 
 // ── Finding things in a project ──────────────────────────────────────────────
 
+// An object anywhere in the project (ids are unique across tabs).
 function findDeep(project, id) {
   const search = (list, layer, top) => {
     for (const o of list) {
@@ -161,19 +169,33 @@ function findDeep(project, id) {
     }
     return null;
   };
-  for (const layer of project.layers) { const r = search(layer.objects, layer, null); if (r) return r; }
+  for (const tab of project.tabs) {
+    for (const layer of tab.layers) { const r = search(layer.objects, layer, null); if (r) return { ...r, tab }; }
+  }
   return null;
 }
 
-// A layer by id or name; by default the topmost visible, unlocked one.
-function findLayer(project, ref, { writable = false } = {}) {
+const tabList = project => project.tabs.map(t => `"${t.name}" (id ${t.id})`).join(', ');
+
+// A tab by id or name; by default the one open in OTIS, else the first.
+function findTab(project, ref, cur = null) {
+  const tabs = project.tabs;
+  if (ref == null || ref === '') return (cur?.id === project.id && tabs.find(t => t.id === cur.tab)) || tabs[0];
+  const r = String(ref).toLowerCase();
+  const tab = tabs.find(t => t.id === ref) || tabs.find(t => t.name.toLowerCase() === r);
+  if (!tab) throw new ToolError(`No tab "${ref}". Tabs: ${tabList(project)}`);
+  return tab;
+}
+
+// A layer of a tab by id or name; by default the topmost visible, unlocked one.
+function findLayer(tab, ref, { writable = false } = {}) {
   let layer;
   if (ref == null || ref === '') {
-    layer = [...project.layers].reverse().find(l => l.visible && !l.locked) || project.layers.at(-1);
+    layer = [...tab.layers].reverse().find(l => l.visible && !l.locked) || tab.layers.at(-1);
   } else {
     const r = String(ref).toLowerCase();
-    layer = project.layers.find(l => l.id === ref) || project.layers.find(l => l.name.toLowerCase() === r);
-    if (!layer) throw new ToolError(`No layer "${ref}". Layers: ${project.layers.map(l => `"${l.name}"`).join(', ')}`);
+    layer = tab.layers.find(l => l.id === ref) || tab.layers.find(l => l.name.toLowerCase() === r);
+    if (!layer) throw new ToolError(`No layer "${ref}" on tab "${tab.name}". Layers: ${tab.layers.map(l => `"${l.name}"`).join(', ')}`);
   }
   if (writable && layer.locked) throw new ToolError(`Layer "${layer.name}" is locked. Unlock it with edit_layer first.`);
   return layer;
@@ -193,7 +215,7 @@ const FACTORIES = {
 };
 const ATTR_KEYS = ['bold', 'italic', 'underline', 'dim', 'strike'];
 const COLOR_KEYS = ['fg', 'bg', 'borderFg', 'headerFg', 'headerBg'];
-const HELPER_KEYS = ['type', 'id', 'cols', 'rows', 'children', 'move', 'layer'];
+const HELPER_KEYS = ['type', 'id', 'cols', 'rows', 'children', 'move', 'layer', 'art'];
 const GUESS = {
   color: 'fg', foreground: 'fg', background: 'bg', borderColor: 'borderFg', width: 'w', height: 'h',
   content: 'text', label: 'text', value: 'text', style: 'border', borderStyle: 'border', char: 'glyph',
@@ -282,11 +304,11 @@ function build(spec, palette, notes) {
   return o;
 }
 
-function offCanvas(project, objs, notes) {
+function offCanvas(tab, objs, notes) {
   for (const o of objs) {
     const b = bounds(o);
-    if (b.x < 0 || b.y < 0 || b.x + b.w > project.cols || b.y + b.h > project.rows) {
-      notes.push(`${o.type} ${o.id} (x=${b.x} y=${b.y} w=${b.w} h=${b.h}) goes past the ${project.cols}×${project.rows} canvas; the part outside won't show.`);
+    if (b.x < 0 || b.y < 0 || b.x + b.w > tab.cols || b.y + b.h > tab.rows) {
+      notes.push(`${o.type} ${o.id} (x=${b.x} y=${b.y} w=${b.w} h=${b.h}) goes past the ${tab.cols}×${tab.rows} canvas; the part outside won't show.`);
     }
   }
 }
@@ -298,6 +320,41 @@ function pruneEmptyGroups(list) {
     pruneEmptyGroups(o.children);
     if (!o.children.length) list.splice(i, 1);
   }
+}
+
+// TextArt: text objects with `art` { text, font, size } get their big letters drawn.
+const loadFlf = name => fs.readFile(path.join(HERE, 'public', 'fonts', 'figlet', name + '.flf'), 'utf8');
+
+async function drawArt(o, spec, notes) {
+  if (o.type !== 'text') { notes.push(`"art" only works on text objects; ignored on ${o.type}.`); return; }
+  if (typeof spec !== 'object' || spec === null) throw new ToolError('"art" is { "text": "Hello", "font": "blocks-3d", "size": "m" }.');
+  const art = { text: 'Text', font: 'blocks-3d', size: 'm', ...o.art, ...spec };
+  if (!TEXTART_FONTS.some(f => f.id === art.font)) {
+    notes.push(`No TextArt font "${art.font}"; used blocks-3d. Fonts: ${TEXTART_FONTS.map(f => f.id).join(', ')}.`);
+    art.font = 'blocks-3d';
+  }
+  const size = fitSize(art.font, art.size);
+  if (size !== art.size) notes.push(`${art.font} has no size "${art.size}"; used "${size}".`);
+  art.size = size;
+  art.text = String(art.text);
+  o.art = art;
+  o.text = await renderTextArt(art.text, art.font, art.size, loadFlf);
+  o.transparent = true;
+  o.autoSize = true;
+  fitText(o);
+}
+
+// Build objects, then draw any TextArt among them (it loads fonts, so it's async).
+async function buildAll(specs, palette, notes) {
+  const built = specs.map(s => build(s, palette, notes));
+  const pending = [];
+  const visit = (spec, o) => {
+    if (spec?.art !== undefined) pending.push(drawArt(o, spec.art, notes));
+    if (o.type === 'group') spec.children.forEach((c, i) => visit(c, o.children[i]));
+  };
+  specs.forEach((s, i) => visit(s, built[i]));
+  await Promise.all(pending);
+  return built;
 }
 
 // ── Rendering for the AI ─────────────────────────────────────────────────────
@@ -332,15 +389,16 @@ function describe(o) {
   if (o.name) bits.push(`"${o.name}"`);
   bits.push(o.type === 'line' ? 'points ' + JSON.stringify(o.points) : `x=${b.x} y=${b.y} w=${b.w} h=${b.h}`);
   if (o.title) bits.push(`title "${clip(o.title)}"`);
-  if (o.text) bits.push(`text "${clip(o.text)}"`);
+  if (o.art) bits.push(`TextArt "${clip(o.art.text)}" (font ${o.art.font}, size ${o.art.size})`);
+  else if (o.text) bits.push(`text "${clip(o.text)}"`);
   if (o.type === 'table') bits.push(`${o.colWidths.length} cols × ${o.rowHeights.length} rows, header "${clip(o.cells[0].join(' | '))}"`);
   if (o.hidden) bits.push('hidden');
   return bits.join(' · ');
 }
 
-function outline(project, selection = []) {
-  const out = ['Objects (layers bottom to top; later objects draw on top):'];
-  project.layers.forEach((l, i) => {
+function outline(tab, selection = []) {
+  const out = [`Objects on tab "${tab.name}" (layers bottom to top; later objects draw on top):`];
+  tab.layers.forEach((l, i) => {
     const flags = [!l.visible && 'hidden', l.locked && 'locked'].filter(Boolean);
     out.push(`Layer ${i + 1} "${l.name}" (id ${l.id})${flags.length ? ` [${flags.join(', ')}]` : ''}${l.objects.length ? '' : ' — empty'}`);
     const list = (objs, depth) => objs.forEach(o => {
@@ -352,29 +410,33 @@ function outline(project, selection = []) {
   return out.join('\n');
 }
 
-function header(project) {
-  return `Project "${project.name}" (id ${project.id}) · canvas ${project.cols}×${project.rows} `
-    + `(x 0–${project.cols - 1}, y 0–${project.rows - 1}) · theme ${project.palette?.name || '?'} · font ${project.font?.family}`;
+function header(project, tab) {
+  const others = project.tabs.filter(t => t !== tab);
+  return `Project "${project.name}" (id ${project.id}) · tab "${tab.name}" (id ${tab.id}) · canvas ${tab.cols}×${tab.rows} `
+    + `(x 0–${tab.cols - 1}, y 0–${tab.rows - 1}) · theme ${project.palette?.name || '?'} · font ${project.font?.family}`
+    + (others.length ? `\nOther tabs: ${others.map(t => `"${t.name}" (id ${t.id})`).join(', ')}` : '');
 }
 
-async function selectionFor(project) {
-  const cur = await json('GET', 'current').catch(() => null);
-  return cur?.id === project.id ? cur.selection || [] : [];
+async function selectionFor(project, tab) {
+  const cur = await current();
+  return cur.id === project.id && cur.tab === tab.id ? cur.selection || [] : [];
 }
 
 // What every editing tool returns: what happened, any notes, and a fresh look.
-function report(project, summary, notes) {
-  return [summary, ...notes.map(n => '! ' + n), '', header(project), ruled(composite(project))].join('\n');
+function report(project, tab, summary, notes) {
+  return [summary, ...notes.map(n => '! ' + n), '', header(project, tab), ruled(composite(project, { tab }))].join('\n');
 }
 
 // ── Tools ────────────────────────────────────────────────────────────────────
 
 const PROJECT = { type: 'string', description: 'Project id or name. Leave out to use the project open in OTIS.' };
-const LAYER = { type: 'string', description: 'Layer id or name. Default: the topmost visible, unlocked layer.' };
+const TAB = { type: 'string', description: 'Tab (screen) id or name. Default: the tab open in OTIS, else the first tab.' };
+const LAYER = { type: 'string', description: 'Layer id or name, on the tab. Default: the topmost visible, unlocked layer.' };
 
 const OBJECT_GUIDE = `Coordinates are character cells: x = column, y = row, 0-based from the top-left. Fields by type:
 - box: x y w h border title titleAlign(left|center|right) text align(left|center|right) valign(top|middle|bottom) padding fill borderFg. Boxes are see-through inside; give a popup fill " " (and bg, e.g. "background") so it covers what's underneath
 - text: x y text; add w (and h) to wrap inside a fixed frame, otherwise it sizes to fit. border(default none) align transparent(true lets spaces show what's underneath, for ASCII art)
+- TextArt (big letters for titles and splash screens): a text object with art {text, font, size} instead of text. font: blocks-3d (default, the solid "ANSI Shadow" look) blocks standard slant shadow script lean block bubble digital mini; size s|m|l (not every font has every size). Change it later with update_objects and a new art
 - line (or "arrow"): points [[x1,y1],[x2,y2],…], each pair joined with one elbow. route(hv = horizontal first | vh) style start end
 - table: x y cells [["NAME","CPU"],["nginx","12%"]] (column widths fit the content; or cols/rows) aligns colWidths rowHeights header(first row bold, line under it) rowLines colLines border headerFg headerBg borderFg padding
 - block: x y w h glyph (fills the rectangle: █ ▓ ▒ ░ ▀ ▄ …)
@@ -395,17 +457,18 @@ const TOOLS = [
     async run() {
       const [list, cur] = await Promise.all([json('GET', 'projects'), json('GET', 'current').catch(() => ({}))]);
       if (!list.length) return 'No saved projects yet. create_project makes one.';
-      return list.map(p => `${p.id} · "${p.name}" · ${p.cols}×${p.rows} · saved ${p.updated}${p.id === cur.id ? '   ← open in OTIS' : ''}`).join('\n');
+      return list.map(p => `${p.id} · "${p.name}" · ${p.cols}×${p.rows}${p.tabs > 1 ? ` · ${p.tabs} tabs` : ''} · saved ${p.updated}${p.id === cur.id ? '   ← open in OTIS' : ''}`).join('\n');
     },
   },
   {
     name: 'render',
     title: 'Render a design',
-    description: 'Show a project as text, the way it looks on the canvas. With the ruler (default) it has column numbers on top and row numbers down the left, plus a list of every object with its id and position. Use it to see a design before you change it. format "markdown" or "ansi" gives export-ready output instead.',
+    description: 'Show one tab of a project as text, the way it looks on the canvas. With the ruler (default) it has column numbers on top and row numbers down the left, plus a list of every object with its id and position. Use it to see a design before you change it. format "markdown" or "ansi" gives export-ready output instead.',
     inputSchema: {
       type: 'object',
       properties: {
         project: PROJECT,
+        tab: TAB,
         format: { type: 'string', enum: ['text', 'markdown', 'ansi', 'ansi-truecolor'], description: 'Default text.' },
         ruler: { type: 'boolean', description: 'Text format only: coordinates and the object list. Default true.' },
         crop: { type: 'boolean', description: 'Trim to the area with content. Default false.' },
@@ -414,20 +477,21 @@ const TOOLS = [
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
-    async run({ project: ref, format = 'text', ruler = true, crop = false, layers }) {
+    async run({ project: ref, tab: tabRef, format = 'text', ruler = true, crop = false, layers }) {
       const { project } = await load(await projectId(ref));
-      const only = layers?.length ? layers.map(r => ({ ...findLayer(project, r), visible: true })) : undefined;
-      const grid = composite(project, only ? { layers: only } : {});
+      const tab = findTab(project, tabRef, await current());
+      const only = layers?.length ? layers.map(r => ({ ...findLayer(tab, r), visible: true })) : undefined;
+      const grid = composite(project, { tab, ...(only ? { layers: only } : {}) });
       if (format === 'markdown') return toMarkdown(project, grid, { crop });
       if (format === 'ansi' || format === 'ansi-truecolor') return toAnsi(grid, project, { mode: format === 'ansi' ? 'theme' : 'truecolor', crop });
       if (!ruler) return toText(grid, { crop });
-      return [header(project), ruled(grid, { crop }), '', outline(project, await selectionFor(project))].join('\n');
+      return [header(project, tab), ruled(grid, { crop }), '', outline(tab, await selectionFor(project, tab))].join('\n');
     },
   },
   {
     name: 'get_project',
     title: 'Get project JSON',
-    description: 'The full project as OTIS JSON (layers, objects and every field). Use render for a quicker look.',
+    description: 'The full project as OTIS JSON (every tab with its layers, objects and every field). Use render for a quicker look.',
     inputSchema: { type: 'object', properties: { project: PROJECT }, additionalProperties: false },
     annotations: { readOnlyHint: true, openWorldHint: false },
     async run({ project: ref }) {
@@ -446,7 +510,7 @@ const TOOLS = [
         cols: { type: 'integer', description: 'Canvas width in characters. Default 100.' },
         rows: { type: 'integer', description: 'Canvas height in characters. Default 30.' },
         theme: { type: 'string', description: 'Theme id or name (see get_palette). Default PhosphorWolf.' },
-        objects: { type: 'array', items: { type: 'object' }, description: 'Objects to start with, on the first layer.' },
+        objects: { type: 'array', items: { type: 'object' }, description: 'Objects to start with, on the first tab\'s first layer.' },
         show: { type: 'boolean', description: 'Open it in the OTIS window. Default true.' },
       },
       required: ['name'],
@@ -459,27 +523,29 @@ const TOOLS = [
       }));
       if (theme) applyTheme(project, await findTheme(theme));
       const notes = [];
-      const built = objects.map(s => build(s, project.palette, notes));
-      project.layers[0].objects.push(...built);
-      offCanvas(project, built, notes);
+      const tab = project.tabs[0];
+      const built = await buildAll(objects, project.palette, notes);
+      tab.layers[0].objects.push(...built);
+      offCanvas(tab, built, notes);
       await json('PUT', 'projects/' + project.id, project);
       let where = '';
       if (show) {
         const { windows } = await json('POST', 'show', { id: project.id });
         where = windows ? ' It is open in OTIS.' : ` No OTIS window is open; it's at ${BASE}/#p=${project.id}`;
       }
-      return report(project, `Created "${project.name}" (id ${project.id}).${where}`
+      return report(project, tab, `Created "${project.name}" (id ${project.id}).${where}`
         + (built.length ? ` Object ids: ${built.map(o => o.id).join(', ')}.` : ''), notes);
     },
   },
   {
     name: 'add_objects',
     title: 'Add objects',
-    description: 'Add objects to a project. Returns their ids and a fresh render. ' + OBJECT_GUIDE,
+    description: 'Add objects to a tab of a project. Returns their ids and a fresh render. ' + OBJECT_GUIDE,
     inputSchema: {
       type: 'object',
       properties: {
         project: PROJECT,
+        tab: TAB,
         layer: LAYER,
         objects: { type: 'array', items: { type: 'object' }, minItems: 1 },
       },
@@ -487,22 +553,22 @@ const TOOLS = [
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    async run({ project: ref, layer, objects }) {
-      const { project, notes, result } = await edit(ref, (p, notes) => {
-        const target = findLayer(p, layer, { writable: true });
-        const built = objects.map(s => build(s, p.palette, notes));
+    async run({ project: ref, tab: tabRef, layer, objects }) {
+      const { project, notes, result, tab } = await edit(ref, async (p, notes, tab) => {
+        const target = findLayer(tab, layer, { writable: true });
+        const built = await buildAll(objects, p.palette, notes);
         target.objects.push(...built);
-        offCanvas(p, built, notes);
+        offCanvas(tab, built, notes);
         return { built, target };
-      });
-      return report(project, `Added ${result.built.length} object(s) to layer "${result.target.name}": `
+      }, { tab: tabRef });
+      return report(project, tab, `Added ${result.built.length} object(s) to layer "${result.target.name}": `
         + result.built.map(o => `${o.type} ${o.id}`).join(', ') + '.', notes);
     },
   },
   {
     name: 'update_objects',
     title: 'Change objects',
-    description: 'Change objects by id: set any of their fields, "move": [dx, dy] to shift them (works for groups and lines too), or "layer" to move a top-level object to another layer. Fields not given stay as they are. Returns a fresh render.',
+    description: 'Change objects by id (on any tab): set any of their fields, "move": [dx, dy] to shift them (works for groups and lines too), or "layer" to move a top-level object to another layer of its tab. Fields not given stay as they are. Returns a fresh render.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -527,7 +593,8 @@ const TOOLS = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     async run({ project: ref, changes }) {
-      const { project, notes } = await edit(ref, (p, notes) => {
+      const { project, notes, tab } = await edit(ref, async (p, notes) => {
+        let tab;
         for (const ch of changes) {
           const hit = findDeep(p, ch.id);
           if (!hit) throw new ToolError(`No object with id "${ch.id}". render lists the ids.`);
@@ -535,6 +602,8 @@ const TOOLS = [
           const o = hit.obj;
           if ('type' in ch && ch.type !== o.type) notes.push(`Can't turn a ${o.type} into a ${ch.type}; delete it and add a new one.`);
           assign(o, ch, p.palette, notes);
+          // on TextArt, "text" is the words to draw big
+          if (ch.art !== undefined || (o.art && 'text' in ch)) await drawArt(o, { ...ch.art, ...('text' in ch && o.art ? { text: ch.text } : {}) }, notes);
           if (o.type === 'text' && ('w' in ch || 'h' in ch) && !('autoSize' in ch)) o.autoSize = false;
           if ((o.type === 'text' || o.type === 'box') && o.autoSize) fitText(o);
           if (o.type === 'table' && (ch.cells || ch.cols || ch.rows)) {
@@ -550,20 +619,22 @@ const TOOLS = [
           if (ch.layer) {
             if (hit.top !== o) notes.push(`${o.id} is inside a group; move the group to another layer instead.`);
             else {
-              const target = findLayer(p, ch.layer, { writable: true });
+              const target = findLayer(hit.tab, ch.layer, { writable: true });
               if (target !== hit.layer) { hit.list.splice(hit.list.indexOf(o), 1); target.objects.push(o); }
             }
           }
-          offCanvas(p, [o], notes);
+          offCanvas(hit.tab, [o], notes);
+          tab = hit.tab;
         }
+        return { tab };
       });
-      return report(project, `Changed ${changes.length} object(s).`, notes);
+      return report(project, tab, `Changed ${changes.length} object(s).`, notes);
     },
   },
   {
     name: 'delete_objects',
     title: 'Delete objects',
-    description: 'Delete objects by id (including objects inside groups). The user can undo it in OTIS with Ctrl+Z.',
+    description: 'Delete objects by id (on any tab, including objects inside groups). The user can undo it in OTIS with Ctrl+Z.',
     inputSchema: {
       type: 'object',
       properties: { project: PROJECT, ids: { type: 'array', items: { type: 'string' }, minItems: 1 } },
@@ -572,29 +643,31 @@ const TOOLS = [
     },
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     async run({ project: ref, ids }) {
-      const { project, notes, result } = await edit(ref, (p, notes) => {
-        let n = 0;
+      const { project, notes, result, tab } = await edit(ref, (p, notes) => {
+        let n = 0, tab;
         for (const id of ids) {
           const hit = findDeep(p, id);
           if (!hit) { notes.push(`No object "${id}".`); continue; }
           if (hit.layer.locked) { notes.push(`${id} is on locked layer "${hit.layer.name}"; skipped.`); continue; }
           hit.list.splice(hit.list.indexOf(hit.obj), 1);
+          tab = hit.tab;
           n++;
         }
-        p.layers.forEach(l => pruneEmptyGroups(l.objects));
-        return n;
+        for (const t of p.tabs) t.layers.forEach(l => pruneEmptyGroups(l.objects));
+        return { n, tab };
       });
-      return report(project, `Deleted ${result} object(s).`, notes);
+      return report(project, tab, `Deleted ${result.n} object(s).`, notes);
     },
   },
   {
     name: 'edit_layer',
     title: 'Edit layers',
-    description: 'Add, rename, show, hide, lock, unlock, raise, lower or delete a layer. Layers stack bottom to top; lines only join with lines on the same layer, so popups and overlays belong on their own layer.',
+    description: 'Add, rename, show, hide, lock, unlock, raise, lower or delete a layer of a tab. Layers stack bottom to top; lines only join with lines on the same layer, so popups and overlays belong on their own layer.',
     inputSchema: {
       type: 'object',
       properties: {
         project: PROJECT,
+        tab: TAB,
         action: { type: 'string', enum: ['add', 'rename', 'show', 'hide', 'lock', 'unlock', 'raise', 'lower', 'delete'] },
         layer: { type: 'string', description: 'The layer to change (id or name). Not used by "add".' },
         name: { type: 'string', description: 'Name for "add" or "rename".' },
@@ -603,42 +676,44 @@ const TOOLS = [
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
-    async run({ project: ref, action, layer, name }) {
-      const { project, result } = await edit(ref, p => {
+    async run({ project: ref, tab: tabRef, action, layer, name }) {
+      const { result, tab } = await edit(ref, (p, notes, tab) => {
+        const layers = tab.layers;
         if (action === 'add') {
-          const l = makeLayer(name || `Layer ${p.layers.length + 1}`);
-          p.layers.push(l);
+          const l = makeLayer(name || `Layer ${layers.length + 1}`);
+          layers.push(l);
           return `Added layer "${l.name}" (id ${l.id}) on top.`;
         }
         if (!layer) throw new ToolError(`"${action}" needs "layer".`);
-        const l = findLayer(p, layer);
-        const i = p.layers.indexOf(l);
+        const l = findLayer(tab, layer);
+        const i = layers.indexOf(l);
         switch (action) {
           case 'rename': if (!name) throw new ToolError('"rename" needs "name".'); l.name = name; break;
           case 'show': l.visible = true; break;
           case 'hide': l.visible = false; break;
           case 'lock': l.locked = true; break;
           case 'unlock': l.locked = false; break;
-          case 'raise': if (i < p.layers.length - 1) [p.layers[i], p.layers[i + 1]] = [p.layers[i + 1], p.layers[i]]; break;
-          case 'lower': if (i > 0) [p.layers[i], p.layers[i - 1]] = [p.layers[i - 1], p.layers[i]]; break;
+          case 'raise': if (i < layers.length - 1) [layers[i], layers[i + 1]] = [layers[i + 1], layers[i]]; break;
+          case 'lower': if (i > 0) [layers[i], layers[i - 1]] = [layers[i - 1], layers[i]]; break;
           case 'delete':
-            if (p.layers.length === 1) throw new ToolError('A project needs at least one layer.');
-            p.layers.splice(i, 1);
+            if (layers.length === 1) throw new ToolError('A tab needs at least one layer.');
+            layers.splice(i, 1);
             return `Deleted layer "${l.name}" and its ${l.objects.length} object(s).`;
         }
         return `Layer "${l.name}": ${action} done.`;
-      });
-      return [result, '', outline(project)].join('\n');
+      }, { tab: tabRef });
+      return [result, '', outline(tab)].join('\n');
     },
   },
   {
     name: 'update_project',
     title: 'Change project settings',
-    description: 'Rename the project, resize the canvas, switch the theme, or set the font and default colors.',
+    description: 'Rename the project, resize a tab\'s canvas, switch the theme, or set the font and default colors. Theme, font and colors apply to every tab.',
     inputSchema: {
       type: 'object',
       properties: {
         project: PROJECT,
+        tab: { ...TAB, description: 'The tab that cols/rows resize. Default: the tab open in OTIS, else the first tab.' },
         name: { type: 'string' },
         cols: { type: 'integer' },
         rows: { type: 'integer' },
@@ -650,18 +725,18 @@ const TOOLS = [
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    async run({ project: ref, name, cols, rows, theme, font, background, foreground }) {
+    async run({ project: ref, tab: tabRef, name, cols, rows, theme, font, background, foreground }) {
       const t = theme ? await findTheme(theme) : null;
-      const { project, notes } = await edit(ref, (p, notes) => {
+      const { project, notes, tab } = await edit(ref, (p, notes, tab) => {
         if (name != null) p.name = String(name);
-        if (cols != null) p.cols = Math.max(1, Math.min(500, cols));
-        if (rows != null) p.rows = Math.max(1, Math.min(500, rows));
+        if (cols != null) tab.cols = Math.max(1, Math.min(500, cols));
+        if (rows != null) tab.rows = Math.max(1, Math.min(500, rows));
         if (t) applyTheme(p, t);
         if (font) p.font = { ...p.font, ...font };
         if (background != null) { checkColor(background, p.palette, notes); p.background = background; }
         if (foreground != null) { checkColor(foreground, p.palette, notes); p.foreground = foreground; }
-      });
-      return report(project, 'Project updated.', notes);
+      }, { tab: tabRef });
+      return report(project, tab, 'Project updated.', notes);
     },
   },
   {
@@ -715,44 +790,115 @@ const TOOLS = [
         snippet: { type: 'string', description: 'Snippet id or name.' },
         x: { type: 'integer' },
         y: { type: 'integer' },
+        tab: TAB,
         layer: LAYER,
       },
       required: ['snippet', 'x', 'y'],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    async run({ project: ref, snippet, x, y, layer }) {
+    async run({ project: ref, snippet, x, y, tab: tabRef, layer }) {
       const list = await allSnippets();
       const r = String(snippet).toLowerCase();
       const s = list.find(s => s.id === snippet) || list.find(s => s.name.toLowerCase() === r);
       if (!s) throw new ToolError(`No snippet "${snippet}". list_snippets shows them all.`);
-      const { project, notes, result } = await edit(ref, (p, notes) => {
+      const { project, notes, result, tab } = await edit(ref, (p, notes, tab) => {
         const copies = s.objects.map(cloneObject);
         copies.forEach(o => translate(o, x, y));
         const obj = copies.length > 1 ? makeGroup(copies, { name: s.name }) : Object.assign(copies[0], { name: copies[0].name || s.name });
-        findLayer(p, layer, { writable: true }).objects.push(obj);
-        offCanvas(p, [obj], notes);
+        findLayer(tab, layer, { writable: true }).objects.push(obj);
+        offCanvas(tab, [obj], notes);
         return obj;
-      });
-      return report(project, `Inserted "${s.name}" as ${result.type} ${result.id}.`, notes);
+      }, { tab: tabRef });
+      return report(project, tab, `Inserted "${s.name}" as ${result.type} ${result.id}.`, notes);
+    },
+  },
+  {
+    name: 'edit_tab',
+    title: 'Edit tabs',
+    description: 'Tabs are the screens of a design (main view, settings, help…), each with its own canvas size and layers. Add, duplicate, rename, move or delete a tab, or show it in the OTIS window. New tabs get the first tab\'s size unless you pass cols/rows; "duplicate" copies everything on the tab.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: PROJECT,
+        action: { type: 'string', enum: ['add', 'duplicate', 'rename', 'move', 'delete', 'show'] },
+        tab: { type: 'string', description: 'The tab to change (id or name). Not used by "add". Default for the others: the tab open in OTIS.' },
+        name: { type: 'string', description: 'Name for "add", "duplicate" or "rename".' },
+        position: { type: 'integer', description: '"add" and "move": where the tab goes, 1 = first. Default for "add": last.' },
+        cols: { type: 'integer', description: '"add": canvas width. Default: the first tab\'s.' },
+        rows: { type: 'integer', description: '"add": canvas height. Default: the first tab\'s.' },
+      },
+      required: ['action'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    async run({ project: ref, action, tab: tabRef, name, position, cols, rows }) {
+      if (action === 'show') {
+        const id = await projectId(ref);
+        const { project } = await load(id);
+        const tab = findTab(project, tabRef, await current());
+        const { windows } = await json('POST', 'show', { id, tab: tab.id });
+        return windows ? `Showing tab "${tab.name}" in OTIS.` : `No OTIS window is open. The project is at ${BASE}/#p=${id}`;
+      }
+      const at = (tabs, fallback) => position == null ? fallback : Math.max(0, Math.min(tabs.length, position - 1));
+      const { project, result } = await edit(ref, (p, notes, tab) => {
+        const tabs = p.tabs;
+        const size = n => (n == null ? null : Math.max(1, Math.min(500, n)));
+        if (action === 'add') {
+          const t = makeTab(name || `Tab ${tabs.length + 1}`, size(cols) ?? tabs[0].cols, size(rows) ?? tabs[0].rows);
+          tabs.splice(at(tabs, tabs.length), 0, t);
+          return { tab: t, text: `Added tab "${t.name}" (id ${t.id}), ${t.cols}×${t.rows}.` };
+        }
+        const i = tabs.indexOf(tab);
+        switch (action) {
+          case 'duplicate': {
+            const t = { ...structuredClone(tab), id: uid(), name: name || tab.name + ' copy' };
+            t.layers.forEach(l => { l.id = uid(); l.objects = l.objects.map(cloneObject); });
+            tabs.splice(i + 1, 0, t);
+            return { tab: t, text: `Duplicated "${tab.name}" as "${t.name}" (id ${t.id}). Its objects have new ids.` };
+          }
+          case 'rename':
+            if (!name) throw new ToolError('"rename" needs "name".');
+            tab.name = String(name);
+            return { tab, text: `Renamed the tab to "${tab.name}".` };
+          case 'move':
+            if (position == null) throw new ToolError('"move" needs "position" (1 = first).');
+            tabs.splice(i, 1);
+            tabs.splice(Math.min(tabs.length, at(tabs, i)), 0, tab);
+            return { tab, text: `Moved "${tab.name}" to position ${tabs.indexOf(tab) + 1} of ${tabs.length}.` };
+          case 'delete':
+            if (tabs.length === 1) throw new ToolError('A project needs at least one tab.');
+            tabs.splice(i, 1);
+            return { tab: tabs[Math.max(0, i - 1)], text: `Deleted tab "${tab.name}" and its ${tab.layers.reduce((n, l) => n + l.objects.length, 0)} object(s).` };
+        }
+        throw new ToolError(`Unknown action "${action}".`);
+      }, { tab: tabRef });
+      return [result.text, '', `Tabs: ${tabList(project)}`].join('\n');
     },
   },
   {
     name: 'show_project',
     title: 'Open in OTIS',
-    description: 'Switch the OTIS window to a project so the user can see it.',
-    inputSchema: { type: 'object', properties: { project: { ...PROJECT, description: 'Project id or name.' } }, required: ['project'], additionalProperties: false },
+    description: 'Switch the OTIS window to a project (and optionally one of its tabs) so the user can see it.',
+    inputSchema: {
+      type: 'object',
+      properties: { project: { ...PROJECT, description: 'Project id or name.' }, tab: { type: 'string', description: 'Tab id or name to show. Default: leave the tab as it is.' } },
+      required: ['project'],
+      additionalProperties: false,
+    },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    async run({ project: ref }) {
+    async run({ project: ref, tab: tabRef }) {
       const id = await projectId(ref);
-      const { windows } = await json('POST', 'show', { id });
-      return windows ? `Opened ${id} in OTIS.` : `No OTIS window is open. The project is at ${BASE}/#p=${id}`;
+      const tab = tabRef ? findTab((await load(id)).project, tabRef) : null;
+      const { windows } = await json('POST', 'show', { id, tab: tab?.id });
+      return windows ? `Opened ${id}${tab ? ` on tab "${tab.name}"` : ''} in OTIS.` : `No OTIS window is open. The project is at ${BASE}/#p=${id}`;
     },
   },
 ];
 
 const INSTRUCTIONS = `OTIS (Omarchy Text Interface Studio) designs terminal UIs on a grid of character cells: x is the column, y the row, 0-based from the top-left.
 - Tools work on the project open in the user's OTIS window unless you pass "project" (an id or name from list_projects).
+- A project has one or more tabs: the screens of the app being designed (main view, settings, help…), each with its own canvas size and layers. Tools work on the tab the user has open unless you pass "tab". edit_tab adds, duplicates, renames and deletes tabs; "show" switches the user's window to one. Object ids are unique across tabs.
 - Look before you edit: render shows the canvas with a coordinate ruler and every object's id. Every edit returns a fresh render, so check your work.
 - Build with boxes (bordered frames with a title and text), text, tables, arrows (line), blocks, and groups. Group the parts of one widget so they move together. Put popups and overlays on their own layer.
 - Lines on the same layer join automatically (├ ┬ ┼ ┤), so a divider that ends on a box border makes a clean junction.

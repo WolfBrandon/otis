@@ -93,8 +93,8 @@ test('project put / get / list / delete', async () => {
   const list = await res.json();
   assert.equal(list.length, 1);
   assert.deepEqual(
-    { id: list[0].id, name: list[0].name, cols: list[0].cols, rows: list[0].rows },
-    { id: 'demo-1', name: 'Test', cols: 80, rows: 24 },
+    { id: list[0].id, name: list[0].name, cols: list[0].cols, rows: list[0].rows, tabs: list[0].tabs },
+    { id: 'demo-1', name: 'Test', cols: 80, rows: 24, tabs: 1 },
   );
 
   res = await fetch(`${base}/api/projects/demo-1`, { method: 'DELETE' });
@@ -223,7 +223,7 @@ test('events: saves, deletes and show requests are broadcast', async () => {
   const events = await got;
   assert.deepEqual(events, [
     { event: 'project', data: { id: 'live', etag, name: 'Test', by: 'mcp' } },
-    { event: 'show', data: { id: 'live' } },
+    { event: 'show', data: { id: 'live', tab: null } },
     { event: 'deleted', data: { id: 'live' } },
   ]);
   shown = await fetch(`${base}/api/show`, { method: 'POST', body: JSON.stringify({ id: '../x' }) });
@@ -234,8 +234,8 @@ test('current project: the browser reports it, the MCP reads it', async () => {
   let res = await fetch(`${base}/api/current`);
   const empty = await res.json();
   assert.deepEqual([empty.id, empty.selection], [null, []]);
-  res = await fetch(`${base}/api/current`, { method: 'PUT', body: JSON.stringify({ id: 'abc', selection: ['o1', 2] }) });
-  assert.deepEqual(await res.json(), { id: 'abc', selection: ['o1'] });
+  res = await fetch(`${base}/api/current`, { method: 'PUT', body: JSON.stringify({ id: 'abc', tab: 't2', selection: ['o1', 2] }) });
+  assert.deepEqual(await res.json(), { id: 'abc', tab: 't2', selection: ['o1'] });
   res = await fetch(`${base}/api/current`);
   assert.equal((await res.json()).id, 'abc');
   res = await fetch(`${base}/api/current`, { method: 'PUT', body: JSON.stringify({ id: '../etc' }) });

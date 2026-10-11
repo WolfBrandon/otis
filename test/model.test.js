@@ -11,7 +11,7 @@ import { BUILTIN_SNIPPETS, sampleProject } from '../public/js/snippets.js';
 
 const project = (objects, opts = {}) => {
   const p = makeProject({ cols: 20, rows: 6, palette: THEMES[0], ...opts });
-  p.layers[0].objects = objects;
+  p.tabs[0].layers[0].objects = objects;
   return p;
 };
 const text = (objects, opts) => toText(composite(project(objects, opts)));
@@ -40,7 +40,7 @@ test('a divider line ending on a box edge makes tees, not crosses', () => {
 
 test('junctions stay apart on different layers', () => {
   const p = project([makeBox(0, 0, 5, 3)]);
-  p.layers.push({ id: 'l2', name: 'top', visible: true, locked: false, objects: [makeBox(4, 0, 5, 3)] });
+  p.tabs[0].layers.push({ id: 'l2', name: 'top', visible: true, locked: false, objects: [makeBox(4, 0, 5, 3)] });
   assert.equal(toText(composite(p)).split('\n')[0], '┌───┌───┐');
 });
 
@@ -50,7 +50,7 @@ test('merging can be switched off', () => {
 
 test('hidden layers and objects are skipped', () => {
   const p = project([makeText(0, 0, 'a'), { ...makeText(1, 0, 'b'), hidden: true }]);
-  p.layers.push({ id: 'l2', name: 'x', visible: false, locked: false, objects: [makeText(2, 0, 'c')] });
+  p.tabs[0].layers.push({ id: 'l2', name: 'x', visible: false, locked: false, objects: [makeText(2, 0, 'c')] });
   assert.equal(toText(composite(p)).split('\n')[0], 'a');
 });
 
@@ -228,4 +228,77 @@ test('table cell text wraps, aligns and clips', () => {
   const t = tbl({ colWidths: [6, 5], rowHeights: [1, 2, 1], aligns: ['left', 'right'] });
   t.cells[1][0] = 'hello world';
   assert.deepEqual(lines(t).slice(3, 5), ['│ hell │  b1 │', '│ o    │     │']);
+});
+
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+
+import { normalizeProject } from '../public/js/state.js';
+
+test('a file from before tabs opens as one tab, "Main", that looks the same', () => {
+  const box = makeBox(0, 0, 8, 3, { title: 'Old' });
+  const v1 = {
+    otis: 1, id: 'old1', name: 'Old', cols: 20, rows: 6, palette: THEMES[0],
+    layers: [{ id: 'a1', name: 'Layer 1', visible: true, locked: false, objects: [box] }],
+  };
+  const before = toText(composite({ ...v1, tabs: [{ cols: 20, rows: 6, layers: v1.layers }] }));
+  const p = normalizeProject(structuredClone(v1));
+  assert.equal(p.otis, 2);
+  assert.deepEqual(p.tabs.map(t => [t.id, t.name, t.cols, t.rows]), [['main', 'Main', 20, 6]]);
+  assert.ok(!('layers' in p) && !('cols' in p) && !('rows' in p));
+  assert.equal(toText(composite(p)), before);
+  assert.deepEqual(normalizeProject(structuredClone(p)), p, 'normalizing again changes nothing');
+});
+
+test('each tab composites on its own canvas', () => {
+  const p = project([makeText(0, 0, 'main')]);
+  p.tabs.push({ id: 't2', name: 'Two', cols: 6, rows: 2, layers: [{ id: 'l9', name: 'L', visible: true, locked: false, objects: [makeText(1, 1, 'two')] }] });
+  assert.equal(toText(composite(p)).split('\n')[0], 'main');
+  const g = composite(p, { tab: p.tabs[1] });
+  assert.deepEqual([g.cols, g.rows], [6, 2]);
+  assert.equal(toText(g), '\n two');
+  const md = toMarkdown(p, null, { tabs: p.tabs.map(t => ({ name: t.name, grid: composite(p, { tab: t }) })) });
+  assert.match(md, /^# Untitled\n\n## Main\n\n```text\nmain\n[\s\S]*## Two\n\n```text\n\n two\n```/);
+});
+
+// ── Scaling a selection ──────────────────────────────────────────────────────
+
+import { scaleObjects, unionBounds } from '../public/js/model.js';
+
+test('scaling keeps shared cells shared, so junctions survive', () => {
+  const objs = [makeBox(0, 0, 10, 4), makeBox(9, 0, 6, 4), makeLine(0, 2, 9, 2, { end: 'none' })];
+  const from = unionBounds(objs.map(bounds));
+  const big = scaleObjects(objs, from, { x: 0, y: 0, w: 29, h: 7 });
+  const out = text(big, { cols: 30, rows: 7 }).split('\n');
+  assert.equal(out[0], '┌─────────────────┬─────────┐');
+  assert.match(out[4], /^├─+┤ +│$/);
+  assert.equal(out[6], '└─────────────────┴─────────┘');
+  assert.equal(objs[0].w, 10, 'the originals are untouched');
+});
+
+test('text that fits itself keeps its size; tables and drawings stretch', () => {
+  const label = makeText(4, 1, 'hi');
+  const [t] = scaleObjects([label], { x: 0, y: 0, w: 10, h: 3 }, { x: 0, y: 0, w: 20, h: 3 });
+  assert.deepEqual([t.w, t.h, t.x], [2, 1, 10]);
+  const tbl = makeTable(0, 0, 2, 2, { colWidths: [4, 2] });
+  const b = bounds(tbl);
+  const [s] = scaleObjects([tbl], b, { ...b, w: b.w + 6 });
+  assert.deepEqual(s.colWidths, [8, 4]);
+  const p = makePaint(0, 0, { cells: [[0, 0, '█', null, null], [1, 0, '░', null, null]] });
+  const [q] = scaleObjects([p], bounds(p), { x: 0, y: 0, w: 4, h: 2 });
+  assert.equal(toText(composite(project([q], { cols: 4, rows: 2 }))), '██░░\n██░░');
+});
+
+test('a solid fill hides the backgrounds underneath, on any layer', () => {
+  // a highlighted row, then a popup with fill " " and no background over it
+  const row = makeText(0, 1, 'Option 7  ', { bg: 'green' });
+  const popup = makeBox(4, 0, 6, 3, { fill: ' ' });
+  const g1 = composite(project([row, popup]));
+  const p = project([row]);
+  p.tabs[0].layers.push({ id: 'l2', name: 'Editing', visible: true, locked: false, objects: [popup] });
+  const g2 = composite(p);
+  for (const g of [g1, g2]) {
+    assert.equal(g.bg[1 * 20 + 2], 'green', 'outside the popup the row keeps its color');
+    assert.equal(g.bg[1 * 20 + 6], null, 'inside the popup the canvas shows');
+    assert.equal(g.ch[1 * 20 + 6], ' ');
+  }
 });

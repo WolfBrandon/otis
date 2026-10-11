@@ -43,7 +43,7 @@ restart. The README's Development section has a map of the files.
   or a framework.
 - **Simple beats clever.** Prefer the small, readable version.
 - **Keep the core pure.** `model.js`, `composite.js`, `export.js`,
-  `palette.js` and `snippets.js` must not touch the DOM. They run in Node for
+  `palette.js`, `snippets.js` and `textart.js` must not touch the DOM. They run in Node for
   the tests and for the MCP server.
 - **Don't break saved projects.** If you change the file format, update
   `docs/FORMAT.md` and make sure older files still open (see

@@ -32,12 +32,16 @@ export function toText(grid, { trim = true, crop = false } = {}) {
   return lines.join('\n');
 }
 
-export function toMarkdown(project, grid, { heading = true, embed = false, trim = true, crop = false } = {}) {
-  const text = toText(grid, { trim, crop });
-  const ticks = Math.max(0, ...(text.match(/`+/g) || []).map(m => m.length));
-  const fence = '`'.repeat(Math.max(3, ticks + 1));
+// `tabs` ([{ name, grid }]) exports several tabs, each under its own heading.
+export function toMarkdown(project, grid, { heading = true, embed = false, trim = true, crop = false, tabs = null } = {}) {
+  const block = g => {
+    const text = toText(g, { trim, crop });
+    const ticks = Math.max(0, ...(text.match(/`+/g) || []).map(m => m.length));
+    const fence = '`'.repeat(Math.max(3, ticks + 1));
+    return `${fence}text\n${text}\n${fence}\n`;
+  };
   let md = heading ? `# ${project.name || 'Untitled'}\n\n` : '';
-  md += `${fence}text\n${text}\n${fence}\n`;
+  md += tabs ? tabs.map(t => `## ${t.name}\n\n${block(t.grid)}`).join('\n') : block(grid);
   if (embed) {
     // "-->" can only occur inside JSON strings, where > is an equivalent escape.
     const json = JSON.stringify(project).replace(/-->/g, '--\\u003e');

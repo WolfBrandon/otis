@@ -13,15 +13,51 @@ who designs TUIs. It ships with every stock Omarchy theme, so you can see a
 design in each of them. And your AI assistant can draw in it with you, live.
 
 **[Try it in your browser](https://wolfbrandon.github.io/otis/)**. There's
-nothing to install, and your designs stay in your browser.
+nothing to install, and your designs stay in your browser. New to OTIS?
+**[The how-to](docs/HOWTO.md)** walks from your first screen through tabs,
+popups and TextArt to building it with your AI agent.
+
+> **AI agents:** to install OTIS for your user, fetch and follow
+> https://raw.githubusercontent.com/WolfBrandon/otis/main/INSTALL.md
 
 ![Drawing a box and a table in OTIS, switching Omarchy themes, then widgets arriving live through the MCP server, the way an AI assistant draws](docs/demo.gif)
 
-## Run it
+## Install
 
-OTIS runs as a small local server that you open as an app. There are two equally
-supported ways to run it. Both serve <http://localhost:6847> (6847 spells OTIS
-on a phone keypad), start when you log in, and add an **OTIS** launcher.
+**Ask your AI agent.** Tell Claude Code, Codex, Grok, OpenCode, Pi or
+whichever agent you use:
+
+```text
+Install https://github.com/WolfBrandon/otis as an app
+```
+
+On Omarchy 4 you can hand it straight to your default agent:
+`omarchy agent prompt "Install https://github.com/WolfBrandon/otis as an app"`.
+
+**Or run the installer yourself:**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/WolfBrandon/otis/main/install.sh | bash
+```
+
+Either way you get:
+
+- OTIS running at <http://localhost:6847> (6847 spells OTIS on a phone keypad),
+  starting when you log in.
+- An **OTIS** launcher: Super + Space, then type OTIS. On Omarchy it's a proper
+  web app, the same kind Omarchy makes for HEY and Basecamp; elsewhere it goes
+  in your applications menu.
+- The [OTIS tools](#let-an-ai-draw-in-otis) in every coding agent you have
+  installed (Claude Code, Codex, Gemini CLI, Grok, Copilot CLI, Pi, OpenCode,
+  Cursor CLI), plus an OTIS skill that tells them when to use it. Start a new
+  agent session afterwards so the tools load.
+
+OTIS lives in `~/.local/share/otis/app` and your projects in
+`~/.local/share/otis/projects`. Run the same command again to update.
+`install.sh --check` shows what's set up, and `install.sh --uninstall` removes
+the service, launcher and agent connections but keeps your projects.
+
+**From a clone**, if you'd rather keep OTIS somewhere else:
 
 ```sh
 git clone https://github.com/WolfBrandon/otis.git
@@ -29,11 +65,6 @@ cd otis
 ./install.sh             # native: a systemd user service, needs Node 20+
 ./install.sh --docker    # or in Docker
 ```
-
-On Omarchy the launcher is a proper web app (Super + Space → OTIS), the same
-kind Omarchy makes for HEY and Basecamp. Elsewhere it goes in your
-applications menu. If Claude Code is installed, the installer also gives it
-the [OTIS tools](#let-an-ai-draw-in-otis).
 
 - **Native** runs `node server.js` as a systemd *user* service. That's a
   background program that belongs to you and starts when you log in, with no
@@ -44,9 +75,9 @@ the [OTIS tools](#let-an-ai-draw-in-otis).
   automatically. Your user needs to be in the `docker` group.
 
 Projects are saved in `~/.local/share/otis` either way, so you can switch
-between the two. To update, run `git pull` and then the installer again.
-`./install.sh --uninstall` removes the service, container, launcher and AI
-tools, and keeps your projects. `--port N` picks another port.
+between the two. To update a clone, run `git pull` and then the installer
+again. `--port N` picks another port, `--agent NAME` connects just one agent,
+and `--no-agents` none.
 
 **Without installing:** `node server.js` serves on port 6847 and saves to
 `./data`. No `npm install` is needed. Plain `docker compose up -d` works too.
@@ -74,12 +105,25 @@ before exposing it beyond your LAN.
 ## What it does
 
 - **Canvas in characters.** Set the size in columns × rows; everything snaps to cells.
+- **Tabs.** One project can hold several screens of the same app: the main
+  view, settings, a help popup. Add a tab with `+` above the canvas (it gets
+  the first tab's size), double-click to rename, drag to reorder, and use
+  `⋯` to duplicate or delete. Each tab has its own size and layers;
+  `Alt+PageUp` / `Alt+PageDown` switch between them.
 - **Layers.** Show, hide, lock, reorder and duplicate layers. Drag objects
   in the Layers panel to move them to another layer or restack them.
   Double-click an object to rename it, and delete it from there too. Lines
   join into `├ ┬ ┼` only with lines on the *same* layer, so a popup on its own
   layer won't fuse with the boxes underneath.
 - **Tools:** Select, Box, Text, Arrow, Table, Cursor, Block fill, Pencil, Eraser, Pan.
+- **Scale a selection.** Select several objects (or a group) and drag the
+  handles around them to stretch or shrink them all together. Lines that
+  meet a box border still meet it.
+- **TextArt.** Type a title, pick a font and a size (small, medium, large),
+  and get big letters for splash screens and headers. It has Blocks 3D (the
+  solid look of OTIS's own logo), Blocks, and the classic FIGlet fonts:
+  Standard, Slant, Shadow, Script and more. Change the text, font or size
+  later from the Properties panel. `Shift+T` opens it.
 - **Tables.** Pick the number of columns and rows, then drag out the table.
   Drag column and row edges with the mouse to resize them. Double-click a
   cell to type, and Tab moves to the next one (adding a row at the end).
@@ -140,16 +184,12 @@ text rendering you'd export, with coordinates, so it can check its work.
 That also makes your designs a solid starting point when you ask it to write
 the real TUI code.
 
-`./install.sh` sets this up for Claude Code automatically. To add it yourself:
-
-```sh
-claude mcp add --scope user otis -- node /path/to/otis/mcp.js        # native
-claude mcp add --scope user otis -- docker exec -i otis node mcp.js  # Docker
-```
-
-For other MCP clients, run `node /path/to/otis/mcp.js` over stdio. The
-`OTIS_URL` variable points it at a server that isn't on
-`http://127.0.0.1:6847`.
+The installer connects every agent it knows (see [Install](#install)). For
+any other MCP client, add a stdio server that runs
+`~/.local/share/otis/otis-mcp`, a small script the installer writes. It
+starts `mcp.js` the right way for a native or Docker install and port. Or run
+`node /path/to/otis/mcp.js` yourself; the `OTIS_URL` variable points it at a
+server that isn't on `http://127.0.0.1:6847`.
 
 | Tool | What it does |
 |---|---|
@@ -157,14 +197,15 @@ For other MCP clients, run `node /path/to/otis/mcp.js` over stdio. The
 | `render` | The design as text with a coordinate ruler, plus every object and its id (or Markdown/ANSI) |
 | `get_project` | The full project JSON |
 | `create_project` | A new design, optionally with objects, opened in OTIS |
-| `add_objects` / `update_objects` / `delete_objects` | Draw, change, move and remove objects |
+| `add_objects` / `update_objects` / `delete_objects` | Draw, change, move and remove objects, including TextArt |
+| `edit_tab` | Add, duplicate, rename, move or delete tabs, or show one in OTIS |
 | `edit_layer` | Add, rename, show/hide, lock, reorder or delete layers |
-| `update_project` | Name, canvas size, theme, font |
+| `update_project` | Name, a tab's canvas size, theme, font |
 | `get_palette` | Palette colors and the themes available |
 | `list_snippets` / `insert_snippet` | Ready-made widgets |
 | `show_project` | Switch the OTIS window to a project |
 
-Tools act on the project open in OTIS unless told otherwise. Objects you've
+Tools act on the project and tab open in OTIS unless told otherwise. Objects you've
 selected are marked, so "make the selected box red" works. If you and the AI
 change the same project at the same moment, nothing is lost: OTIS loads the
 AI's version and your edit is one Ctrl+Z away.
@@ -182,6 +223,7 @@ AI's version and your edit is one Ctrl+Z away.
 | `K` | Block fill | `Enter` or double-click | Edit text |
 | `P` / `E` | Pencil / eraser | `Ctrl+scroll`, `+` `-` `0` | Zoom |
 | `H` or hold `Space` | Pan | `G` | Grid |
+| `Shift+T` | TextArt | `Alt+PageUp` / `Alt+PageDown` | Previous / next tab |
 | `Ctrl+S` / `Ctrl+O` / `Ctrl+E` | Save / open / export | `?` | All shortcuts |
 
 ## Good to know
@@ -214,6 +256,12 @@ public/js/composite.js layers → character grid (junction merging)
 public/js/boxchars.js  box-drawing tables + glyphs drawn on the canvas
 public/js/render.js    canvas renderer
 public/js/tools.js     mouse/keyboard tools
+public/js/tabs.js      the tab bar
+public/js/textart.js   TextArt: FIGlet fonts and the Blocks fonts
+public/js/artdialog.js the TextArt dialog
+public/fonts/figlet/   FIGlet fonts (BSD license, see the LICENSE there)
+skills/otis/           the Agent Skill that tells coding agents how to use OTIS
+INSTALL.md             install steps written for AI agents
 public/js/export.js    Markdown / text / ANSI
 public/js/palette.js   palette slots, theme file import (Omarchy, Alacritty, Ghostty, Kitty)
 public/js/themes.js    generated from Omarchy's stock themes (npm run themes)
@@ -253,5 +301,7 @@ privately, as [SECURITY.md](SECURITY.md) describes.
   themes (MIT), which adapt the palettes they're named after (Tokyo Night,
   Catppuccin, Gruvbox, Nord, Rosé Pine, Kanagawa, Everforest…).
 - The color picker is modeled on Web Awesome's.
+- TextArt's classic fonts are from [FIGlet](http://www.figlet.org/) by Glenn
+  Chappell, Ian Chai and others (BSD license; see `public/fonts/figlet`).
 
 MIT licensed. See [LICENSE](LICENSE).

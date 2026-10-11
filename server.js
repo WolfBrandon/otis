@@ -33,6 +33,7 @@ const MIME = {
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
   '.txt': 'text/plain; charset=utf-8',
+  '.flf': 'text/plain; charset=utf-8',
   '.md': 'text/markdown; charset=utf-8',
 };
 
@@ -137,7 +138,7 @@ export function createServer({
     for (const res of listeners) res.write(msg);
   };
   // What the browser has open, so MCP tools can default to it.
-  let current = { id: null, selection: [] };
+  let current = { id: null, tab: null, selection: [] };
 
   // One save at a time per project, so the If-Match check and the write
   // can't interleave with another save.
@@ -164,11 +165,13 @@ export function createServer({
       try {
         const [stat, text] = await Promise.all([fs.stat(file), fs.readFile(file, 'utf8')]);
         const p = JSON.parse(text);
+        const first = p.tabs?.[0] || p; // files from before tabs keep the size at the top
         out.push({
           id: name.slice(0, -'.otis.json'.length),
           name: p.name || '',
-          cols: p.cols,
-          rows: p.rows,
+          cols: first.cols,
+          rows: first.rows,
+          tabs: p.tabs?.length || 1,
           updated: stat.mtime.toISOString(),
         });
       } catch {
@@ -290,7 +293,7 @@ export function createServer({
     }
 
     // Server-Sent Events: "project" {id, etag, by} after every save,
-    // "deleted" {id}, and "show" {id} when the MCP asks windows to open one.
+    // "deleted" {id}, and "show" {id, tab} when the MCP asks windows to open one.
     if (parts.length === 1 && parts[0] === 'events' && method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
       res.write('retry: 2000\n\n');
@@ -308,8 +311,9 @@ export function createServer({
       if (method === 'PUT') {
         const body = await readJsonBody(req);
         const id = isPlainObject(body) && typeof body.id === 'string' && ID_RE.test(body.id) ? body.id : null;
+        const tab = typeof body?.tab === 'string' ? body.tab.slice(0, 64) : null;
         const selection = Array.isArray(body?.selection) ? body.selection.filter((s) => typeof s === 'string').slice(0, 500) : [];
-        current = { id, selection };
+        current = { id, tab, selection };
         return sendJson(res, 200, current);
       }
       throw new HttpError(405, 'Method not allowed');
@@ -320,8 +324,9 @@ export function createServer({
       const body = await readJsonBody(req);
       const id = isPlainObject(body) ? String(body.id || '') : '';
       projectFile(id); // validates the id
-      broadcast('show', { id });
-      return sendJson(res, 200, { id, windows: listeners.size });
+      const tab = typeof body.tab === 'string' ? body.tab.slice(0, 64) : null;
+      broadcast('show', { id, tab });
+      return sendJson(res, 200, { id, tab, windows: listeners.size });
     }
 
     throw new HttpError(404, 'Not found');

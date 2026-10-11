@@ -28,6 +28,7 @@ const P = {
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   slim: '<rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M15 4v16"/>',
   wide: '<rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M10 4v16M15.5 4v16"/>',
+  textart: '<path d="M3 19L8.5 5h3L17 19M5.5 13.5h9"/><path d="M12.5 5H15l5.5 14M17.5 13.5H19" opacity=".55"/>',
   table: '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 14.5h18M9 4v16M15 4v16"/>',
   more: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
   alignLeft: '<path d="M4 3v18M8 7h10v4H8zM8 14h6v4H8z"/>',

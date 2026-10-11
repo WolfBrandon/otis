@@ -11,6 +11,46 @@ All notable changes to OTIS are listed here. The format follows
 While OTIS is below 1.0, a minor version may still change the file format,
 and this file will say so when it does.
 
+## [0.4.0] - 2026-10-11
+
+### Added
+
+- Tabs: one project holds several screens, each with its own canvas size and
+  layers. Add, rename, reorder, duplicate and delete them from the bar above
+  the canvas. Undo takes you to the tab where the change was, and other
+  windows stay on their own tab.
+- Scale a selection: several selected objects (or a group) get handles, and
+  dragging one stretches or shrinks them all. Junctions stay joined.
+- TextArt (`Shift+T`): big letters from text, in OTIS's Blocks 3D and Blocks
+  fonts or the classic FIGlet fonts, in small, medium and large. TextArt
+  remembers its text, font and size, so you can change them later.
+- Markdown export can include every tab, each under its own heading.
+- MCP: an `edit_tab` tool, a `tab` option on the drawing tools (they use the
+  tab you have open), and TextArt through `art` on text objects.
+- Install by asking your AI agent ("Install https://github.com/WolfBrandon/otis
+  as an app"), or with one line: `curl -fsSL …/install.sh | bash`. OTIS goes
+  in `~/.local/share/otis/app`. `INSTALL.md` walks agents through it.
+- The installer connects OTIS to every coding agent it finds (Claude Code,
+  Codex, Gemini CLI, Grok, Copilot CLI, Pi, OpenCode, Cursor CLI) and links an
+  OTIS Agent Skill that tells them when and how to use it. `--agent NAME`
+  picks agents, `--check` reports what's set up, and `--uninstall` undoes it
+  all.
+- `AGENTS.md` for agents working on OTIS's code.
+- A how-to (`docs/HOWTO.md`, also under Help → How-to guide) that goes from
+  installing OTIS through tabs, popups and TextArt to building the design
+  with your AI agent.
+
+### Changed
+
+- The project file format is now version 2: canvas size and layers live in
+  `tabs`. Older files open as a single tab named "Main" and look the same.
+  OTIS 0.3 and earlier can't read version 2 files.
+
+### Fixed
+
+- A box with a solid fill now hides background colors underneath it, also
+  from lower layers. Before, a highlighted row under a popup showed through.
+
 ## [0.3.0] - 2026-10-11
 
 ### Added
@@ -68,6 +108,7 @@ The first version.
   Omarchy launcher.
 - An MCP server (`mcp.js`) so AI assistants can view and draw designs live.
 
+[0.4.0]: https://github.com/WolfBrandon/otis/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/WolfBrandon/otis/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/WolfBrandon/otis/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/WolfBrandon/otis/releases/tag/v0.1.0

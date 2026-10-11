@@ -3,13 +3,14 @@
 // Events:
 //   'doc'       the project changed (re-composite and redraw)
 //   'project'   a different project was loaded
+//   'tab'       a different tab is open ({ resized } if its canvas size differs)
 //   'selection' selection or active layer changed
 //   'tool'      tool or brush changed
 //   'view'      pan/zoom/grid changed (redraw only)
 //   'library'   snippets or saved palettes changed
 //   'dirty'     there are unsaved changes
 
-import { makeProject, makeLayer, walk, fitText, cellFrame } from './model.js';
+import { FORMAT_VERSION, makeProject, makeLayer, walk, fitText, cellFrame } from './model.js';
 import { THEMES } from './themes.js';
 
 const listeners = {};
@@ -23,6 +24,7 @@ export function emit(evt, data) {
 
 export const state = {
   project: null,
+  tabId: null,            // the open tab; each window has its own
   activeLayerId: null,
   selection: [],          // ids of top-level objects
   tool: 'select',
@@ -41,24 +43,33 @@ export function defaultPalette() {
   return { ...structuredClone(t), source: 'builtin:' + t.id };
 }
 
-// Fill in anything an older or hand-written file is missing.
+// Fill in anything an older or hand-written file is missing. Files from
+// before tabs (format 1) had one canvas; it becomes the tab "Main".
 export function normalizeProject(p) {
-  const d = makeProject();
-  p = { ...d, ...p };
+  const { tabs: _, ...d } = makeProject();
+  const { cols, rows, layers, ...rest } = p;
+  p = { ...d, ...rest, otis: FORMAT_VERSION };
   p.font = { ...d.font, ...(p.font || {}) };
   if (!p.palette) p.palette = defaultPalette();
   // older files: link the palette back to the built-in theme it came from
   if (!p.palette.source && THEMES.some(t => t.id === p.palette.id)) p.palette.source = 'builtin:' + p.palette.id;
-  if (!Array.isArray(p.layers) || !p.layers.length) p.layers = [makeLayer('Layer 1')];
-  for (const l of p.layers) {
-    l.objects ||= [];
-    l.visible ??= true;
-    l.locked ??= false;
-    for (const o of walk(l.objects)) {
-      o.attrs ||= {};
-      if ((o.type === 'text' || o.type === 'box') && o.autoSize) fitText(o);
+  if (!Array.isArray(p.tabs) || !p.tabs.length) p.tabs = [{ id: 'main', name: 'Main', cols, rows, layers }];
+  p.tabs.forEach((t, i) => {
+    t.id = String(t.id || (i ? 'tab' + (i + 1) : 'main'));
+    t.name ||= i ? `Tab ${i + 1}` : 'Main';
+    t.cols ||= 100;
+    t.rows ||= 30;
+    if (!Array.isArray(t.layers) || !t.layers.length) t.layers = [makeLayer('Layer 1')];
+    for (const l of t.layers) {
+      l.objects ||= [];
+      l.visible ??= true;
+      l.locked ??= false;
+      for (const o of walk(l.objects)) {
+        o.attrs ||= {};
+        if ((o.type === 'text' || o.type === 'box') && o.autoSize) fitText(o);
+      }
     }
-  }
+  });
   return p;
 }
 
@@ -71,8 +82,9 @@ let lastCoalesce = null;
 
 export function setProject(p) {
   state.project = normalizeProject(p);
-  const layers = state.project.layers;
-  state.activeLayerId = ([...layers].reverse().find(l => l.visible && !l.locked) || layers[layers.length - 1]).id;
+  state.tabId = state.project.tabs[0].id;
+  tabLayers.clear();
+  state.activeLayerId = defaultLayerId();
   state.selection = [];
   state.editing = null;
   undoStack.length = redoStack.length = 0;
@@ -129,28 +141,42 @@ export function replaceProject(p) {
   if (state.editing) stopEditing();
   endGesture();
   pushUndo(snapshot());
+  const was = activeTab();
   state.project = normalizeProject(p);
-  const ids = new Set(state.project.layers.flatMap(l => l.objects.map(o => o.id)));
-  state.selection = state.selection.filter(id => ids.has(id));
-  if (!state.project.layers.some(l => l.id === state.activeLayerId)) {
-    const layers = state.project.layers;
-    state.activeLayerId = ([...layers].reverse().find(l => l.visible && !l.locked) || layers[layers.length - 1]).id;
-  }
+  keepTab(was);
   lastCoalesce = null;
   state.dirty = false;
   emit('doc');
   emit('selection');
 }
 
+// After the project was swapped out: stay on the open tab if it still
+// exists, and drop selections and layers that are gone.
+function keepTab(was, to = state.tabId) {
+  const tabs = state.project.tabs;
+  state.tabId = tabs.some(t => t.id === to) ? to : tabs[0].id;
+  const tab = activeTab();
+  const ids = new Set(tab.layers.flatMap(l => l.objects.map(o => o.id)));
+  state.selection = state.selection.filter(id => ids.has(id));
+  if (!tab.layers.some(l => l.id === state.activeLayerId)) state.activeLayerId = defaultLayerId();
+  if (tab.id !== was.id) emit('tab', { resized: tab.cols !== was.cols || tab.rows !== was.rows });
+}
+
 export function canUndo() { return undoStack.length > 0; }
 export function canRedo() { return redoStack.length > 0; }
 
+// Undo and redo show where the change was: if the open tab didn't change but
+// another one did, that tab opens.
 function restore(snap) {
+  const was = activeTab();
+  const old = new Map(state.project.tabs.map(t => [t.id, JSON.stringify(t)]));
   state.project = JSON.parse(snap);
-  const ids = new Set(state.project.layers.flatMap(l => l.objects.map(o => o.id)));
-  state.selection = state.selection.filter(id => ids.has(id));
-  if (!state.project.layers.some(l => l.id === state.activeLayerId))
-    state.activeLayerId = state.project.layers[state.project.layers.length - 1].id;
+  const changed = t => JSON.stringify(t) !== old.get(t.id);
+  const here = state.project.tabs.find(t => t.id === state.tabId);
+  let to = state.tabId;
+  if (!here || !changed(here)) to = state.project.tabs.find(changed)?.id ?? to;
+  if (to !== state.tabId) state.selection = [];
+  keepTab(was, to);
   state.editing = null;
   lastCoalesce = null;
   markDirty();
@@ -169,16 +195,50 @@ export function redo() {
   restore(redoStack.pop());
 }
 
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+
+// The open tab: its canvas size and layers are what the editor shows.
+export function activeTab() {
+  const tabs = state.project.tabs;
+  return tabs.find(t => t.id === state.tabId) || tabs[0];
+}
+
+const tabLayers = new Map();   // the active layer each tab had when you left it
+
+function defaultLayerId() {
+  const layers = activeTab().layers;
+  return ([...layers].reverse().find(l => l.visible && !l.locked) || layers[layers.length - 1]).id;
+}
+
+// Open another tab. This isn't a change to the project, so it isn't saved
+// or undone; other windows stay on their own tab.
+export function switchTab(id) {
+  const was = activeTab();
+  if (id === was.id || !state.project.tabs.some(t => t.id === id)) return;
+  if (state.editing) stopEditing();
+  endGesture();
+  tabLayers.set(was.id, state.activeLayerId);
+  state.tabId = id;
+  state.selection = [];
+  const tab = activeTab();
+  const remembered = tabLayers.get(id);
+  state.activeLayerId = tab.layers.some(l => l.id === remembered) ? remembered : defaultLayerId();
+  lastCoalesce = null;
+  emit('tab', { resized: tab.cols !== was.cols || tab.rows !== was.rows });
+  emit('doc');
+  emit('selection');
+}
+
 // ── Lookups ──────────────────────────────────────────────────────────────────
 
 export function activeLayer() {
-  const p = state.project;
-  return p.layers.find(l => l.id === state.activeLayerId) || p.layers[p.layers.length - 1];
+  const layers = activeTab().layers;
+  return layers.find(l => l.id === state.activeLayerId) || layers[layers.length - 1];
 }
 
 // Top-level object by id → { obj, layer, index }
 export function find(id) {
-  for (const layer of state.project.layers) {
+  for (const layer of activeTab().layers) {
     const index = layer.objects.findIndex(o => o.id === id);
     if (index >= 0) return { obj: layer.objects[index], layer, index };
   }
@@ -195,7 +255,7 @@ export function findDeep(id) {
     }
     return null;
   };
-  for (const layer of state.project.layers) { const r = search(layer.objects, layer, null); if (r) return r; }
+  for (const layer of activeTab().layers) { const r = search(layer.objects, layer, null); if (r) return r; }
   return null;
 }
 

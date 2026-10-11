@@ -119,11 +119,11 @@ test('create, render, change and delete a design', async () => {
 
   // the server has it, and the MCP saved through the API
   const saved = await (await fetch(`${base}/api/projects/${id}`)).json();
-  assert.equal(saved.layers[0].objects.length, 3);
-  const [box, line, table] = saved.layers[0].objects;
+  assert.equal(saved.tabs[0].layers[0].objects.length, 3);
+  const [box, line, table] = saved.tabs[0].layers[0].objects;
 
   // tools default to the project the browser reports as open
-  await fetch(`${base}/api/current`, { method: 'PUT', body: JSON.stringify({ id, selection: [table.id] }) });
+  await fetch(`${base}/api/current`, { method: 'PUT', body: JSON.stringify({ id, tab: 'main', selection: [table.id] }) });
   r = await tool('render');
   assert.match(r.text, new RegExp(`table · ${table.id} · x=2 y=2 .*← selected in OTIS`));
   assert.match(r.text, /^ *0 {9}10 {8}20 {8}30$/m);   // column ruler
@@ -138,8 +138,8 @@ test('create, render, change and delete a design', async () => {
   assert.match(r.text, /Deleted 1 object/);
   assert.match(r.text, /No object "missing"/);
   const after = await (await fetch(`${base}/api/projects/${id}`)).json();
-  assert.equal(after.layers[0].objects.length, 3);
-  assert.equal(after.layers[0].objects.find((o) => o.id === table.id).x, 3);
+  assert.equal(after.tabs[0].layers[0].objects.length, 3);
+  assert.equal(after.tabs[0].layers[0].objects.find((o) => o.id === table.id).x, 3);
 });
 
 test('bad input comes back as a tool error the AI can fix', async () => {
@@ -167,5 +167,63 @@ test('snippets, layers and themes', async () => {
   r = await tool('update_project', { project: id, theme: 'nord', cols: 80 });
   const saved = await (await fetch(`${base}/api/projects/${id}`)).json();
   assert.equal(saved.palette.id, 'nord');
-  assert.equal(saved.cols, 80);
+  assert.equal(saved.tabs[0].cols, 80);
+});
+
+test('tabs: add, draw on the open tab, find objects anywhere, show and delete', async () => {
+  const p = await tool('create_project', { name: 'Screens', cols: 30, rows: 6, show: false, objects: [{ type: 'text', x: 0, y: 0, text: 'home' }] });
+  const id = p.text.match(/\(id (\w+)\)/)[1];
+  let r = await tool('edit_tab', { project: id, action: 'add', name: 'Settings' });
+  assert.match(r.text, /Added tab "Settings" \(id (\w+)\), 30×6/);
+  const tabId = r.text.match(/Added tab "Settings" \(id (\w+)\)/)[1];
+  assert.match(r.text, /Tabs: "Main" \(id main\), "Settings"/);
+
+  // with the browser on the Settings tab, tools default to it
+  await fetch(`${base}/api/current`, { method: 'PUT', body: JSON.stringify({ id, tab: tabId, selection: [] }) });
+  r = await tool('add_objects', { objects: [{ type: 'text', x: 1, y: 1, text: 'prefs' }] });
+  assert.match(r.text, /tab "Settings"/);
+  assert.match(r.text, /^1│ prefs$/m);
+  const objId = r.text.match(/text (\w+)\./)[1];
+  r = await tool('render', { tab: 'Main' });
+  assert.match(r.text, /^0│home$/m);
+  assert.doesNotMatch(r.text, /prefs/);
+
+  // ids are unique across tabs, so changes need no tab
+  await fetch(`${base}/api/current`, { method: 'PUT', body: JSON.stringify({ id, tab: 'main', selection: [] }) });
+  r = await tool('update_objects', { changes: [{ id: objId, text: 'options' }] });
+  assert.match(r.text, /tab "Settings"/);
+  assert.match(r.text, /^1│ options$/m);
+
+  r = await tool('edit_tab', { action: 'duplicate', tab: 'Settings', name: 'Settings 2' });
+  assert.match(r.text, /Duplicated "Settings" as "Settings 2"/);
+  r = await tool('edit_tab', { action: 'move', tab: 'Settings 2', position: 1 });
+  assert.match(r.text, /Tabs: "Settings 2" .*"Main" .*"Settings"/);
+  r = await tool('show_project', { project: id, tab: 'Settings' });
+  assert.match(r.text, /No OTIS window is open|on tab "Settings"/);
+  r = await tool('edit_tab', { action: 'delete', tab: 'Settings' });
+  assert.match(r.text, /Deleted tab "Settings" and its 1 object/);
+  const saved = await (await fetch(`${base}/api/projects/${id}`)).json();
+  assert.deepEqual(saved.tabs.map((t) => t.name), ['Settings 2', 'Main']);
+  r = await tool('edit_tab', { action: 'delete', tab: 'Nope' });
+  assert.match(r.text, /No tab "Nope"\. Tabs: "Settings 2"/);
+});
+
+test('TextArt: add big letters, change the words, bad fonts are noted', async () => {
+  const p = await tool('create_project', { name: 'Banner', cols: 60, rows: 12, show: false });
+  const id = p.text.match(/\(id (\w+)\)/)[1];
+  let r = await tool('add_objects', { project: id, objects: [{ type: 'text', x: 1, y: 1, art: { text: 'Hi', font: 'standard' } }] });
+  assert.equal(r.isError, false);
+  assert.match(r.text, /^ 3│ \| \|_\| \| \|$/m);
+  const artId = r.text.match(/text (\w+)\./)[1];
+  r = await tool('render', { project: id });
+  assert.match(r.text, /TextArt "Hi" \(font standard, size m\)/);
+  r = await tool('update_objects', { project: id, changes: [{ id: artId, text: 'Yo' }] });
+  assert.match(r.text, /^ 2│ \\ \\ \/ \/_/m);
+  r = await tool('update_objects', { project: id, changes: [{ id: artId, art: { font: 'comic', size: 'l' } }] });
+  assert.match(r.text, /No TextArt font "comic"; used blocks-3d/);
+  assert.match(r.text, /██/);
+  const saved = await (await fetch(`${base}/api/projects/${id}`)).json();
+  const o = saved.tabs[0].layers[0].objects[0];
+  assert.deepEqual(o.art, { text: 'Yo', font: 'blocks-3d', size: 'l' });
+  assert.equal(o.transparent, true);
 });

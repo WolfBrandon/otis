@@ -2,7 +2,7 @@
 // text layout. Pure functions only (no DOM) so it runs in Node tests too.
 // See docs/FORMAT.md for the file format.
 
-export const FORMAT_VERSION = 1;
+export const FORMAT_VERSION = 2;
 
 let counter = 0;
 export function uid() {
@@ -144,19 +144,23 @@ export function makeLayer(name = 'Layer') {
   return { id: uid(), name, visible: true, locked: false, objects: [] };
 }
 
-export function makeProject(opts = {}) {
+// A tab is one screen of the design, with its own canvas size and layers.
+export function makeTab(name = 'Main', cols = 100, rows = 30, id = uid()) {
+  return { id, name, cols, rows, layers: [makeLayer('Layer 1')] };
+}
+
+// `cols` and `rows` size the first tab.
+export function makeProject({ cols = 100, rows = 30, ...opts } = {}) {
   return {
     otis: FORMAT_VERSION,
     id: uid(),
     name: 'Untitled',
-    cols: 100,
-    rows: 30,
     font: { family: 'JetBrainsMono Nerd Font', size: 16, lineHeight: 1.2 },
     palette: null,
     background: 'background',
     foreground: 'foreground',
     mergeJunctions: true,
-    layers: [makeLayer('Layer 1')],
+    tabs: [makeTab('Main', cols, rows, 'main')],
     ...opts,
   };
 }
@@ -167,6 +171,7 @@ export const TYPE_NAMES = {
 
 export function displayName(o) {
   if (o.name) return o.name;
+  if (o.art) return 'TextArt “' + String(o.art.text).slice(0, 20) + '”';
   if (o.type === 'text' && o.text) return '“' + o.text.split('\n')[0].slice(0, 24) + '”';
   if (o.type === 'box' && o.title) return 'Box “' + o.title.slice(0, 20) + '”';
   if (o.type === 'table') return `Table ${o.colWidths.length}×${o.rowHeights.length}`;
@@ -495,4 +500,64 @@ export function resizeTable(o, cols, rows) {
   o.cells.length = rows;
   o.cells = o.cells.map(row => { row = row.slice(0, cols); while (row.length < cols) row.push(''); return row; });
   return o;
+}
+
+// ── Scaling ──────────────────────────────────────────────────────────────────
+// Copies of `objects` scaled from the area `from` to the area `to` (both
+// { x, y, w, h } in cells). Cells map so the area's first and last cells stay
+// first and last, and objects that share a cell (a divider ending on a
+// border, boxes sharing an edge) still share it. What can't change size (text
+// that fits itself, cursors) keeps its size and moves with its middle.
+export function scaleObjects(objects, from, to) {
+  const axis = (a0, n0, a1, n1) => n0 > 1 ? c => a1 + Math.round((c - a0) * (n1 - 1) / (n0 - 1)) : () => a1;
+  const fx = axis(from.x, from.w, to.x, to.w), fy = axis(from.y, from.h, to.y, to.h);
+  // first and last cell of a run → [start, length]
+  const span = (f, start, len, min) => { const a = f(start); return [a, Math.max(min, f(start + len - 1) - a + 1)]; };
+  // same size, middle cell mapped, kept inside the new area
+  const keep = (f, start, len, a1, n1) => Math.max(a1, Math.min(a1 + n1 - len, f(start + (len >> 1)) - (len >> 1)));
+  // drawn cells tile like pixels: cell c becomes the cells from edge c to edge c + 1
+  const edge = (a0, n0, a1, n1) => e => a1 + Math.round((e - a0) * n1 / n0);
+  const ex = edge(from.x, from.w, to.x, to.w), ey = edge(from.y, from.h, to.y, to.h);
+  const cover = (e, c) => [e(c), Math.max(e(c), e(c + 1) - 1)];
+  const scale = o => {
+    switch (o.type) {
+      case 'group': o.children.forEach(scale); break;
+      case 'line': o.points = o.points.map(([x, y]) => [fx(x), fy(y)]); break;
+      case 'cursor': o.x = fx(o.x); o.y = fy(o.y); break;
+      case 'paint': {
+        const ax = ex(o.x), ay = ey(o.y), out = new Map();
+        for (const [dx, dy, ...rest] of o.cells) {
+          const [x1, x2] = cover(ex, o.x + dx), [y1, y2] = cover(ey, o.y + dy);
+          for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) out.set(x + ',' + y, [x - ax, y - ay, ...rest]);
+        }
+        o.x = ax; o.y = ay; o.cells = [...out.values()];
+        break;
+      }
+      case 'table': {
+        const t = tableLayout(o);
+        const [x, w] = span(fx, o.x, t.w, 0), [y, h] = span(fy, o.y, t.h, 0);
+        const sum = a => a.reduce((s, v) => s + v, 0);
+        o.colWidths = spread(o.colWidths, w - (t.w - sum(o.colWidths)));
+        o.rowHeights = spread(o.rowHeights, h - (t.h - sum(o.rowHeights)));
+        o.x = x; o.y = y;
+        break;
+      }
+      default:   // box, text, block
+        if (o.autoSize) { o.x = keep(fx, o.x, o.w, to.x, to.w); o.y = keep(fy, o.y, o.h, to.y, to.h); break; }
+        { const min = o.border && o.border !== 'none' ? 2 : 1;
+          [o.x, o.w] = span(fx, o.x, o.w, min); [o.y, o.h] = span(fy, o.y, o.h, min); }
+    }
+  };
+  return objects.map(o => { const c = structuredClone(o); scale(c); return c; });
+}
+
+// Split `total` cells over sizes in proportion (at least 1 each).
+function spread(sizes, total) {
+  const all = sizes.reduce((s, v) => s + v, 0);
+  const raw = sizes.map(v => v * total / all);
+  const out = raw.map(r => Math.max(1, Math.floor(r)));
+  let left = total - out.reduce((s, v) => s + v, 0);
+  const order = raw.map((r, i) => [r - Math.floor(r), i]).sort((a, b) => b[0] - a[0]);
+  for (const [, i] of order) { if (left <= 0) break; out[i]++; left--; }
+  return out;
 }
