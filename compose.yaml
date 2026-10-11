@@ -1,0 +1,23 @@
+# OTIS in Docker. `./install.sh --docker` sets this up and writes .env with
+# this machine's settings; plain `docker compose up -d` works too.
+name: otis
+services:
+  otis:
+    build: .
+    image: otis:local
+    container_name: otis
+    ports:
+      # Only this computer can open OTIS (it has no login). To reach it from
+      # your LAN, put OTIS_BIND=0.0.0.0 in .env.
+      - "${OTIS_BIND:-127.0.0.1}:${OTIS_PORT:-6847}:6847"
+    volumes:
+      # Projects: a Docker volume, or a folder (install.sh uses ~/.local/share/otis)
+      - ${OTIS_DATA:-otis-data}:/data
+      # Your own Omarchy themes, read-only (install.sh uses ~/.config/omarchy/themes)
+      - ${OTIS_THEMES:-./themes}:/themes/user:ro
+    # The user OTIS runs as; install.sh sets yours, so files in OTIS_DATA are yours
+    user: "${OTIS_USER:-node}"
+    restart: unless-stopped
+
+volumes:
+  otis-data:

@@ -1,0 +1,137 @@
+/* Color picker popover (public/js/colorpicker.js). Uses the app's CSS variables. */
+.cp-popover {
+  position: fixed;
+  z-index: 1000;
+  width: 264px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--panel, #1e1f29);
+  color: var(--text, #d8dae6);
+  border: 1px solid var(--border, #3a3c4e);
+  border-radius: var(--radius, 8px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  font: 12px/1.3 system-ui, sans-serif;
+  user-select: none;
+}
+
+.cp-sv {
+  position: relative;
+  height: 150px;
+  border-radius: calc(var(--radius, 8px) - 3px);
+  background-image: linear-gradient(to top, #000, rgba(0, 0, 0, 0)), linear-gradient(to right, #fff, rgba(255, 255, 255, 0));
+  cursor: crosshair;
+  touch-action: none;
+  outline: none;
+}
+
+.cp-thumb {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+.cp-sv:focus-visible .cp-thumb,
+.cp-hue:focus-visible .cp-thumb { box-shadow: 0 0 0 3px var(--accent, #7aa2f7); }
+
+.cp-row { display: flex; align-items: center; gap: 8px; }
+
+.cp-preview,
+.cp-swatch,
+.cp-none-chip {
+  /* checkerboard shows through "none" */
+  background-image: conic-gradient(#8884 25%, transparent 0 50%, #8884 0 75%, transparent 0);
+  background-size: 8px 8px;
+}
+
+.cp-preview {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border, #3a3c4e);
+}
+.cp-preview:not(.cp-is-none) { background-image: none; }
+
+.cp-hue {
+  position: relative;
+  flex: 1;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(to right, #f00, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00);
+  cursor: pointer;
+  touch-action: none;
+  outline: none;
+}
+.cp-hue .cp-thumb { top: 50%; }
+
+.cp-input {
+  min-width: 0;
+  padding: 4px 6px;
+  background: var(--panel-2, #16171f);
+  color: var(--text, #d8dae6);
+  border: 1px solid var(--border, #3a3c4e);
+  border-radius: calc(var(--radius, 8px) - 4px);
+  font: 12px ui-monospace, monospace;
+}
+.cp-input:focus { outline: none; border-color: var(--accent, #7aa2f7); }
+.cp-hex { flex: 1; text-transform: lowercase; }
+
+.cp-btn {
+  padding: 4px 8px;
+  background: var(--panel-2, #16171f);
+  color: var(--text, #d8dae6);
+  border: 1px solid var(--border, #3a3c4e);
+  border-radius: calc(var(--radius, 8px) - 4px);
+  font: inherit;
+  cursor: pointer;
+}
+.cp-btn:hover { border-color: var(--accent, #7aa2f7); }
+.cp-mode { width: 46px; font-size: 11px; letter-spacing: 0.05em; }
+.cp-eye { flex: none; width: 28px; padding: 2px 0; font-size: 16px; line-height: 1; }
+
+.cp-nums { gap: 6px; }
+.cp-num { flex: 1; display: flex; align-items: center; gap: 4px; color: var(--muted, #8b8fa8); }
+.cp-num .cp-input { flex: 1; width: 100%; -moz-appearance: textfield; }
+.cp-num .cp-input::-webkit-inner-spin-button { display: none; }
+
+.cp-swatches { display: flex; flex-direction: column; gap: 4px; max-height: 210px; overflow-y: auto; }
+.cp-group-label { color: var(--muted, #8b8fa8); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+.cp-grid,
+.cp-shades { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; }
+
+.cp-swatch {
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cp-swatch:hover { transform: scale(1.12); }
+.cp-swatch.cp-selected,
+.cp-none.cp-selected { outline: 2px solid var(--accent, #7aa2f7); outline-offset: 1px; }
+
+.cp-footer { display: flex; align-items: center; gap: 8px; }
+.cp-none { display: inline-flex; align-items: center; gap: 6px; }
+.cp-none-chip {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid var(--border, #3a3c4e);
+}
+.cp-label {
+  flex: 1;
+  text-align: right;
+  color: var(--muted, #8b8fa8);
+  font: 11px ui-monospace, monospace;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

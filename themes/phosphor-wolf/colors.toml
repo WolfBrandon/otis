@@ -1,0 +1,35 @@
+# Phosphor Wolf — restrained green terminal palette.
+mode = "dark"
+
+accent = "#64ce8d"
+selection = "#19482b"
+muted = "#609174"
+
+background = "#050a06"
+dark_background = "#030704"
+darker_background = "#020403"
+lighter_background = "#0c1c10"
+
+foreground = "#83c99b"
+dark_foreground = "#609174"
+light_foreground = "#a1dfb4"
+bright_foreground = "#c1e8cb"
+
+hyprland_active_border = "rgba(64ce8dcc)"
+hyprland_inactive_border = "rgba(264d3499)"
+
+red = "#df7c87"
+yellow = "#d3b76b"
+orange = "#ce9869"
+green = "#83c99b"
+cyan = "#76bac0"
+blue = "#7cadd1"
+magenta = "#b499c5"
+brown = "#8a5a2b"
+
+bright_red = "#efa2ab"
+bright_yellow = "#e5cf98"
+bright_green = "#a1dfb4"
+bright_cyan = "#a0d2d5"
+bright_blue = "#accce4"
+bright_magenta = "#cfb8dc"

@@ -1,0 +1,36 @@
+# Phosphor — cypherpunk green-screen. P1-phosphor text on CRT black, with
+# neon cyan/magenta/amber left in the ANSI slots so the palette isn't monochrome.
+mode = "dark"
+
+accent = "#3dff8e"
+selection = "#0d3b1e"
+muted = "#1f6b3a"
+
+background = "#050a06"
+dark_background = "#030704"
+darker_background = "#020403"
+lighter_background = "#0c1c10"
+
+foreground = "#41ff7a"
+dark_foreground = "#1f8a45"
+light_foreground = "#86ffb0"
+bright_foreground = "#b8ffd1"
+
+hyprland_active_border = "rgba(3dff8eee) rgba(00e0ffee) 45deg"
+hyprland_inactive_border = "rgba(1f6b3a99)"
+
+red = "#ff3b5c"
+yellow = "#ffc93c"
+orange = "#ff8a2b"
+green = "#41ff7a"
+cyan = "#00e0ff"
+blue = "#4d9fff"
+magenta = "#ff4fd8"
+brown = "#8a5a2b"
+
+bright_red = "#ff6b84"
+bright_yellow = "#ffde7a"
+bright_green = "#86ffb0"
+bright_cyan = "#6cf0ff"
+bright_blue = "#8ec2ff"
+bright_magenta = "#ff8ae6"

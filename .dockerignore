@@ -1,0 +1,14 @@
+node_modules
+data
+.git
+.gitignore
+test
+docs
+scripts
+*.md
+compose.yaml
+Dockerfile
+.dockerignore
+.env
+.env.bak
+install.sh

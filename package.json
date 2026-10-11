@@ -1,0 +1,14 @@
+{
+  "name": "otis",
+  "version": "0.1.0",
+  "description": "OTIS - Omarchy Text Interface Studio. A GUI designer for TUIs.",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/",
+    "themes": "node scripts/build-themes.mjs"
+  },
+  "engines": { "node": ">=20" }
+}
