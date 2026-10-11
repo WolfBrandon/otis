@@ -95,11 +95,13 @@ const local = {
 };
 
 export let storage = local;
+export let appVersion = null;   // from the server; unknown when opened as static files
 
 export async function detectStorage() {
   try {
     const res = await fetch('api/health', { cache: 'no-store' });
-    if (res.ok && (await res.json()).storage === 'server') storage = server;
+    const health = res.ok ? await res.json() : {};
+    if (health.storage === 'server') { storage = server; appVersion = health.version || null; }
   } catch {}
   return storage;
 }

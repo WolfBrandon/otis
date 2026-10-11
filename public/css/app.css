@@ -245,11 +245,24 @@ input.glyph-input { width: 44px; text-align: center; font-size: 15px; }
 .object.hidden .name { opacity: 0.5; text-decoration: line-through; }
 .object.empty { font-style: italic; cursor: default; }
 .object .icon { padding: 2px; }
+.object:not(.locked):not(.empty) { cursor: grab; user-select: none; }
+.object .del { visibility: hidden; }
+.object:hover .del { visibility: visible; }
+.object .del:hover { color: var(--danger); }
+.object.moving { opacity: 0.4; }
+.layer.drop-into, .object.empty.drop-into { outline: 2px solid var(--accent); outline-offset: -2px; }
+.object-ghost { text-transform: none; letter-spacing: 0; font-size: 12px; }
 
 /* library */
 .row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
 .theme-select { flex: 1; min-width: 0; }
 .swatch-group h5, .snippet-group h5 { margin: 10px 0 5px; font-size: 11px; color: var(--muted); font-weight: 600; }
+.swatch-group.folded h5, .snippet-group.folded h5 { margin-bottom: 0; }
+.fold-head {
+  display: flex; align-items: center; gap: 4px; width: 100%; padding: 2px 0; border: 0; background: none;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.fold-head:hover { color: var(--text); background: none; }
 .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(26px, 1fr)); gap: 4px; }
 .swatch { height: 26px; padding: 0; border-radius: 4px; border: 1px solid var(--border); }
 .swatch:hover { transform: scale(1.12); border-color: var(--text) !important; }
@@ -332,6 +345,10 @@ dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 10p
 .shortcuts h4 { margin: 8px 0 4px; color: var(--accent); font-size: 12px; }
 .shortcuts td { padding: 2px 8px 2px 0; vertical-align: top; }
 .about-logo { color: var(--accent); font: 13px/1.1 var(--ui-font); }
+.version-status { color: var(--muted); }
+.version-status.current { color: var(--accent); }
+.version-status.outdated { color: var(--danger); }
+.version-status code { font-family: var(--ui-font); color: var(--text); }
 
 #toast {
   position: fixed; left: 50%; bottom: 40px; transform: translate(-50%, 20px); z-index: 2000;

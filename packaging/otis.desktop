@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=OTIS
+GenericName=TUI Designer
+Comment=Design terminal UIs on a character grid
+Exec=otis
+Icon=otis
+Terminal=false
+Categories=Development;Graphics;
+Keywords=tui;terminal;ascii;ansi;design;omarchy;
+StartupNotify=true

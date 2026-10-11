@@ -88,6 +88,10 @@ export function resetLayout() {
   apply();
 }
 
+// A panel's content element. It exists even while the panel is closed (and
+// out of the page), so panels can keep rendering into it.
+export const panelBody = id => sections[id]?.querySelector('.panel-body') || null;
+
 // Panel modules set their own header title and action buttons.
 export function setHeader(id, title, actions = []) {
   const s = sections[id];

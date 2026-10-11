@@ -1,6 +1,6 @@
 // Sidebar panels (properties, layers), the tool bar, tool options and status bar.
 
-import { el, $, prompt } from './ui.js';
+import { el, $, prompt, confirmDialog } from './ui.js';
 import { icon } from './icons.js';
 import { state, on, emit, mutate, find, selected, select, setTool, setBrush, activeLayer } from './state.js';
 import {
@@ -13,13 +13,19 @@ import * as A from './actions.js';
 import { FONTS, isInstalled, localMonospaceFonts, rememberFont } from './fonts.js';
 import { pointer } from './tools.js';
 import { storage } from './storage.js';
-import { setHeader } from './sidebar.js';
+import { setHeader, panelBody } from './sidebar.js';
 
 export const hooks = { saveSnippet: null, showGlyphs: null };
 
 // ── Form helpers ─────────────────────────────────────────────────────────────
 
-const field = (label, ...controls) => el('label.field', {}, el('span.label', {}, label), el('span.controls', {}, ...controls));
+// A labelled row. Only a lone input is wrapped in <label>: the browser treats a
+// label's first button as hovered whenever any part of the label is, which lit
+// up the first button of every button group.
+const field = (label, ...controls) => {
+  const lone = controls.length === 1 && ['INPUT', 'SELECT', 'TEXTAREA'].includes(controls[0]?.tagName);
+  return el((lone ? 'label' : 'div') + '.field', {}, el('span.label', {}, label), el('span.controls', {}, ...controls));
+};
 const group = (title, ...rows) => el('div.group', {}, title ? el('h4', {}, title) : null, ...rows);
 // First item of a panel body: the title and buttons for the panel header.
 const head = (title, ...actions) => ({ head: true, title, actions });
@@ -105,7 +111,7 @@ function queueProps() {
 }
 
 function renderProps() {
-  const root = $('#props');
+  const root = panelBody('props');
   const sel = selected();
   let body;
   if (!sel.length) body = canvasProps();
@@ -351,29 +357,114 @@ function multiProps(sel) {
 
 const expanded = new Set();
 let layersQueued = false;
+let draggingObject = false;   // no re-render mid-drag (the AI may save meanwhile)
 function queueLayers() {
   if (layersQueued) return;
   layersQueued = true;
-  requestAnimationFrame(() => { layersQueued = false; renderLayers(); });
+  requestAnimationFrame(() => { layersQueued = false; if (!draggingObject) renderLayers(); });
 }
 
-const TYPE_ICON = { box: 'box', text: 'text', line: 'line', block: 'block', cursor: 'cursor', paint: 'paint', group: 'group' };
+const TYPE_ICON = { box: 'box', text: 'text', line: 'line', block: 'block', cursor: 'cursor', paint: 'paint', group: 'group', table: 'table' };
+
+// Double-click that survives the list being redrawn between the two clicks
+// (the first click selects, which redraws the Layers panel, and the browser
+// then never sees a dblclick): two clicks on the same item within 400 ms.
+let lastClick = { key: null, t: 0 };
+function isDoubleClick(key) {
+  const now = performance.now();
+  const dbl = lastClick.key === key && now - lastClick.t < 400;
+  lastClick = dbl ? { key: null, t: 0 } : { key, t: now };
+  return dbl;
+}
+
+async function renameObject(o) {
+  const v = await prompt('Rename object', o.name || '', { label: 'Leave it empty to use the automatic name.', placeholder: displayName({ ...o, name: '' }) });
+  if (v !== null) A.renameObject(o.id, v);
+}
+
+async function deleteObject(o, l) {
+  const ok = await confirmDialog('Delete object', `Delete “${displayName(o)}” from layer “${l.name}”? Ctrl+Z brings it back.`, 'Delete');
+  if (ok === true) A.deleteObject(o.id);
+}
+
+// Drag an object row onto another layer (or between objects) to move it.
+// A selected row drags the whole selection along.
+function startObjectDrag(e, o, layer) {
+  if (e.button !== 0 || layer.locked || e.target.closest('button')) return;
+  const row = e.currentTarget;
+  const x0 = e.clientX, y0 = e.clientY;
+  const ids = state.selection.includes(o.id) ? [...state.selection] : [o.id];
+  let ghost = null, marker = null, target = null;
+
+  const clear = () => document.querySelectorAll('#layers .drop-into').forEach(n => n.classList.remove('drop-into'));
+  // What's under the pointer: a layer row (drop on top of that layer) or an
+  // object row (drop just above or below it, as it appears in the list).
+  const dropTarget = (x, y) => {
+    const hit = document.elementFromPoint(x, y)?.closest('#layers [data-layer]');
+    const dest = hit && state.project.layers.find(l => l.id === hit.dataset.layer);
+    if (!dest || dest.locked) return null;
+    const r = hit.getBoundingClientRect();
+    if (!hit.dataset.id) return { layerId: dest.id, place: null, el: hit };
+    const upper = y < r.top + r.height / 2;
+    return { layerId: dest.id, place: upper ? { above: hit.dataset.id } : { below: hit.dataset.id }, el: hit, lineY: upper ? r.top : r.bottom, r };
+  };
+
+  const move = ev => {
+    if (!ghost) {
+      if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
+      draggingObject = true;
+      ghost = el('div.panel-ghost.object-ghost', {}, ids.length > 1 ? `${ids.length} objects` : displayName(o));
+      marker = el('div.drop-marker');
+      document.body.append(ghost, marker);
+      row.classList.add('moving');
+    }
+    ghost.style.left = ev.clientX + 12 + 'px';
+    ghost.style.top = ev.clientY + 8 + 'px';
+    target = dropTarget(ev.clientX, ev.clientY);
+    clear();
+    marker.hidden = !target?.place;
+    if (target && !target.place) target.el.classList.add('drop-into');
+    if (target?.place) Object.assign(marker.style, { left: target.r.left + 'px', width: target.r.width + 'px', top: target.lineY - 2 + 'px' });
+  };
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', up);
+    if (!ghost) return;
+    ghost.remove();
+    marker.remove();
+    clear();
+    draggingObject = false;
+    if (target) {
+      expanded.add(target.layerId);
+      A.moveObjects(ids, target.layerId, target.place);
+    }
+    renderLayers();
+  };
+  // window listeners rather than pointer capture, so a plain click still
+  // reaches the row's name (capture would retarget it to the row)
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
+}
 
 function renderLayers() {
   const p = state.project;
-  const root = $('#layers');
+  const root = panelBody('layers');
   const selIds = new Set(state.selection);
   const list = el('ul.layer-list');
   for (const l of [...p.layers].reverse()) {
     const active = l.id === state.activeLayerId;
     const open = expanded.has(l.id);
     const name = el('span.name', { title: 'Double-click to rename' }, l.name);
-    name.addEventListener('dblclick', async e => {
+    name.addEventListener('click', async e => {
+      if (!isDoubleClick('layer:' + l.id)) return;
       e.stopPropagation();
       const v = await prompt('Rename layer', l.name);
       if (v) mutate(() => { l.name = v; });
     });
     const row = el('li.layer' + (active ? '.active' : '') + (l.visible ? '' : '.hidden'), {
+      dataset: { layer: l.id },
       onclick: () => { state.activeLayerId = l.id; emit('selection'); },
     },
       el('button.icon.twist' + (open ? '.open' : ''), {
@@ -389,18 +480,28 @@ function renderLayers() {
     if (open) {
       const objs = el('ul.object-list');
       for (const o of [...l.objects].reverse()) {
-        objs.append(el('li.object' + (selIds.has(o.id) ? '.selected' : '') + (o.hidden ? '.hidden' : ''), {
+        const oname = el('span.name', { title: l.locked ? displayName(o) : 'Drag to move to another layer · double-click to rename' }, displayName(o));
+        oname.addEventListener('click', e => {
+          if (l.locked || !isDoubleClick('object:' + o.id)) return;
+          e.stopPropagation();
+          renameObject(o);
+        });
+        const item = el('li.object' + (selIds.has(o.id) ? '.selected' : '') + (o.hidden ? '.hidden' : '') + (l.locked ? '.locked' : ''), {
+          dataset: { layer: l.id, id: o.id },
           onclick: e => {
             if (l.locked) return;
             if (e.shiftKey) select([o.id], { add: true }); else select([o.id]);
           },
         },
           icon(TYPE_ICON[o.type] || 'box', 14),
-          el('span.name', {}, displayName(o)),
+          oname,
+          l.locked ? null : el('button.icon.del', { type: 'button', title: 'Delete', onclick: e => { e.stopPropagation(); deleteObject(o, l); } }, icon('trash', 13)),
           el('button.icon', { type: 'button', title: o.hidden ? 'Show' : 'Hide', onclick: e => { e.stopPropagation(); mutate(() => { o.hidden = !o.hidden; }); } }, icon(o.hidden ? 'eyeOff' : 'eye', 13)),
-        ));
+        );
+        item.addEventListener('pointerdown', e => startObjectDrag(e, o, l));
+        objs.append(item);
       }
-      if (!l.objects.length) objs.append(el('li.object.empty', {}, 'Empty layer'));
+      if (!l.objects.length) objs.append(el('li.object.empty', { dataset: { layer: l.id } }, 'Empty layer'));
       list.append(objs);
     }
   }
@@ -510,15 +611,15 @@ export function initPanels() {
     queueProps(); queueLayers(); renderStatus();
   });
   on('doc', () => {
-    if (!$('#props').contains(document.activeElement)) queueProps();
+    if (!panelBody('props').contains(document.activeElement)) queueProps();
     queueLayers();
     renderStatus();
   });
   on('project', () => { expanded.clear(); queueProps(); queueLayers(); });
   on('tool', () => { renderToolbar(); renderOptions(); });
   on('pointer', renderStatus);
-  $('#props').addEventListener('focusout', () => setTimeout(() => {
-    if (!$('#props').contains(document.activeElement)) queueProps();
+  panelBody('props').addEventListener('focusout', () => setTimeout(() => {
+    if (!panelBody('props').contains(document.activeElement)) queueProps();
   }));
   renderToolbar();
   renderOptions();

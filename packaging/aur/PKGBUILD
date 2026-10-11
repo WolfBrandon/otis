@@ -1,0 +1,33 @@
+# Maintainer: WolfBrandon <https://github.com/WolfBrandon>
+# The AUR copy of this file lives at https://aur.archlinux.org/otis.git;
+# this one in the OTIS repo is the source for it (see CONTRIBUTING.md, Releasing).
+
+pkgname=otis
+pkgver=0.2.0
+pkgrel=1
+pkgdesc='Design terminal UIs on a character grid: boxes, text, tables, layers and Omarchy themes'
+arch=('any')
+url='https://github.com/WolfBrandon/otis'
+license=('MIT')
+depends=('nodejs>=20' 'curl')
+optdepends=('xdg-utils: open OTIS in your browser outside Omarchy')
+install=otis.install
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+check() {
+  cd "$pkgname-$pkgver"
+  node --test
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -d "$pkgdir/usr/share/otis"
+  cp -r --no-preserve=ownership public server.js mcp.js package.json "$pkgdir/usr/share/otis/"
+  install -Dm755 packaging/otis "$pkgdir/usr/bin/otis"
+  install -Dm644 packaging/otis.service "$pkgdir/usr/lib/systemd/user/otis.service"
+  install -Dm644 packaging/otis.desktop "$pkgdir/usr/share/applications/otis.desktop"
+  install -Dm644 public/icon.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/otis.png"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md CHANGELOG.md docs/FORMAT.md -t "$pkgdir/usr/share/doc/$pkgname/"
+}

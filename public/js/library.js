@@ -14,7 +14,7 @@ import { storage } from './storage.js';
 import * as A from './actions.js';
 import { insertIntoEditing } from './tools.js';
 import { hooks } from './panels.js';
-import { setHeader, showPanel } from './sidebar.js';
+import { setHeader, showPanel, panelBody } from './sidebar.js';
 
 let editColors = false;
 let systemThemes = [];
@@ -23,6 +23,26 @@ export async function saveLibrary() {
   emit('library');
   try { await storage.saveLibrary(state.library); }
   catch (e) { toast('Could not save the library: ' + e.message); }
+}
+
+// ── Collapsible groups ───────────────────────────────────────────────────────
+// Swatch groups and snippet categories fold up; which ones are folded is a
+// per-browser preference.
+
+const folded = new Set((() => { try { return JSON.parse(localStorage.getItem('otis:folded')) || []; } catch { return []; } })());
+
+function fold(panel, key, title, cls, ...content) {
+  const id = panel + ':' + key;
+  const open = !folded.has(id);
+  const toggle = () => {
+    if (open) folded.add(id); else folded.delete(id);
+    try { localStorage.setItem('otis:folded', JSON.stringify([...folded])); } catch {}
+    paint(panel);
+  };
+  return el('div.' + cls + (open ? '' : '.folded'), {},
+    el('h5', {}, el('button.fold-head', { type: 'button', 'aria-expanded': String(open), onclick: toggle },
+      el('span.twist' + (open ? '.open' : ''), {}, icon('chevron', 12)), title)),
+    open ? content : null);
 }
 
 // ── Palette ──────────────────────────────────────────────────────────────────
@@ -167,8 +187,8 @@ function renderPalette() {
     el('div.row', {},
       el('label.check', {}, el('input', { type: 'checkbox', checked: editColors, onchange: e => { editColors = e.target.checked; paint('palette'); } }), 'Edit colors'),
       el('span.hint', {}, editColors ? 'Click a swatch to change it' : 'Click: text · Shift+click: background')),
-    ...SLOT_GROUPS.map(g => el('div.swatch-group', {}, el('h5', {}, g.label), el('div.swatches', {}, ...g.keys.map(swatch)))),
-    el('div.swatch-group', {}, el('h5', {}, 'Custom'), el('div.swatches', {}, ...custom.map(swatch),
+    ...SLOT_GROUPS.map(g => fold('palette', g.label, g.label, 'swatch-group', el('div.swatches', {}, ...g.keys.map(swatch)))),
+    fold('palette', 'Custom', 'Custom', 'swatch-group', el('div.swatches', {}, ...custom.map(swatch),
       el('button.swatch.add', { type: 'button', title: 'Add a custom swatch', onclick: addSwatch }, '+'))),
     el('p.hint', {}, 'Objects colored with a swatch follow the theme — switch themes to preview your design in each one.'),
   );
@@ -306,10 +326,10 @@ function renderSnippets() {
   return el('div.snippets', {},
     el('div.row', {},
       el('button', { type: 'button', onclick: saveSelectionAsSnippet, disabled: !state.selection.length, title: 'Save the selected objects as a reusable snippet' }, '+ Save selection')),
-    el('div.snippet-group', {}, el('h5', {}, 'My snippets'),
+    fold('snippets', 'mine', 'My snippets', 'snippet-group',
       mine.length ? el('div.snippet-list', {}, ...mine.map(s => snippetTile(s, true)))
         : el('p.hint', {}, 'Select objects and click “Save selection” to reuse them in any project.')),
-    ...cats.map(c => el('div.snippet-group', {}, el('h5', {}, c),
+    ...cats.map(c => fold('snippets', c, c, 'snippet-group',
       el('div.snippet-list', {}, ...BUILTIN_SNIPPETS.filter(s => s.category === c).map(s => snippetTile(s, false))))),
   );
 }
@@ -340,7 +360,7 @@ const HEADERS = {
 };
 
 function paint(id) {
-  const body = $('#' + id);
+  const body = panelBody(id);
   if (!body) return;
   const scroll = body.scrollTop;
   setHeader(id, id[0].toUpperCase() + id.slice(1), HEADERS[id]());

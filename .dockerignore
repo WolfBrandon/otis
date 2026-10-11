@@ -12,3 +12,6 @@ Dockerfile
 .env
 .env.bak
 install.sh
+packaging
+.github
+.editorconfig

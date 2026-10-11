@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# otis: open OTIS, or run its server or MCP server. Installed by OTIS packages.
+#
+#   otis              open OTIS in its own window, starting the server if needed
+#   otis serve        run the server in the foreground (the systemd unit uses this)
+#   otis mcp          run the MCP server for AI assistants (claude mcp add --scope user otis -- otis mcp)
+#   otis --version    print the version
+#
+# PORT picks another port (default 6847). Projects are saved in ~/.local/share/otis.
+
+set -euo pipefail
+
+APP=${OTIS_HOME:-/usr/share/otis}
+PORT=${PORT:-6847}
+URL="http://localhost:$PORT"
+
+running() { curl -fsS -m 1 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; }
+
+case ${1:-open} in
+open)
+  if ! running; then
+    # the user service when it's installed, otherwise a server for this session
+    systemctl --user start otis.service 2>/dev/null ||
+      (HOST=127.0.0.1 PORT=$PORT setsid node "$APP/server.js" >/dev/null 2>&1 &)
+    for _ in $(seq 1 40); do running && break; sleep 0.25; done
+  fi
+  if command -v omarchy-launch-webapp >/dev/null; then exec omarchy-launch-webapp "$URL"; fi
+  exec xdg-open "$URL"
+  ;;
+serve)
+  export HOST=${HOST:-127.0.0.1} PORT
+  exec node "$APP/server.js"
+  ;;
+mcp) exec node "$APP/mcp.js" ;;
+-v | --version | version) node -p "require('$APP/package.json').version" ;;
+-h | --help | help) sed -n '2,/^[^#]/{/^#/s/^# \{0,1\}//p}' "$0" ;;
+*)
+  echo "otis: unknown command '$1' (try otis --help)" >&2
+  exit 1
+  ;;
+esac

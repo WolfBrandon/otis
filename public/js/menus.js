@@ -6,7 +6,8 @@ import { makeProject, makeText, uid } from './model.js';
 import { composite } from './composite.js';
 import { toText, toMarkdown, toAnsi, contentRect, projectFromMarkdown } from './export.js';
 import { renderPNG } from './render.js';
-import { storage, lastProject } from './storage.js';
+import { storage, lastProject, appVersion } from './storage.js';
+import { REPO_URL, compareVersions, latestRelease } from './version.js';
 import { sampleProject } from './snippets.js';
 import { defaultFont } from './fonts.js';
 import { menuAt, saveSelectionAsSnippet } from './library.js';
@@ -36,7 +37,7 @@ export async function newProjectDialog() {
       .map(([v, l]) => el('option', { value: v }, l)));
   const body = el('div.form', {},
     el('label.field', {}, el('span.label', {}, 'Name'), name),
-    el('label.field', {}, el('span.label', {}, 'Size'), el('span.controls', {}, cols, el('span.x', {}, '×'), rows, preset)),
+    el('div.field', {}, el('span.label', {}, 'Size'), el('span.controls', {}, cols, el('span.x', {}, '×'), rows, preset)),
     el('p.hint', {}, 'Columns × rows, in characters. Uses the current palette and font; you can change everything later.'));
   const ok = await modal('New project', body, [{ label: 'Cancel', value: false }, { label: 'Create', value: true, primary: true }]);
   if (!ok) return;
@@ -251,12 +252,35 @@ export function helpDialog() {
 }
 
 function aboutDialog() {
+  const status = el('p.version-status', {}, 'Checking for a newer version…');
   const body = el('div.about', {},
     el('pre.about-logo', {}, ' ██████╗ ████████╗██╗███████╗\n██╔═══██╗╚══██╔══╝██║██╔════╝\n██║   ██║   ██║   ██║███████╗\n██║   ██║   ██║   ██║╚════██║\n╚██████╔╝   ██║   ██║███████║\n ╚═════╝    ╚═╝   ╚═╝╚══════╝'),
     el('p', {}, el('strong', {}, 'Omarchy Text Interface Studio'), ' — design terminal UIs with boxes, text, arrows and glyphs, then export them as Markdown, text, ANSI or PNG.'),
-    el('p', {}, el('a', { href: 'https://github.com/WolfBrandon/otis', target: '_blank', rel: 'noopener' }, 'github.com/WolfBrandon/otis')),
+    el('p.version', {}, 'Version ', el('strong', {}, appVersion || 'unknown'),
+      ' · ', el('a', { href: REPO_URL + '/blob/main/CHANGELOG.md', target: '_blank', rel: 'noopener' }, 'What’s new')),
+    status,
+    el('p', {}, el('a', { href: REPO_URL, target: '_blank', rel: 'noopener' }, REPO_URL.replace('https://', ''))),
     el('p.hint', {}, 'Themes come from Omarchy (MIT). ' + storage.label + '.'));
   modal('About OTIS', body, [{ label: 'Close', value: null, primary: true }]);
+
+  latestRelease().then(latest => {
+    if (!latest) {
+      status.textContent = 'Couldn’t check for a newer version (you may be offline, or there’s no public release yet).';
+      return;
+    }
+    const link = el('a', { href: latest.url, target: '_blank', rel: 'noopener' }, latest.version);
+    const cmp = appVersion ? compareVersions(appVersion, latest.version) : -1;
+    if (cmp === 0) {
+      status.className = 'version-status current';
+      status.replaceChildren('✓ You’re up to date.');
+    } else if (cmp > 0) {
+      status.replaceChildren('You’re ahead of the latest release (', link, ').');
+    } else {
+      status.className = 'version-status outdated';
+      status.replaceChildren(appVersion ? 'Version ' : 'The latest release is ', link, appVersion ? ' is available. ' : '. ',
+        'To update, run ', el('code', {}, 'git pull && ./install.sh'), ' in the OTIS folder, or update the package if you installed one.');
+    }
+  });
 }
 
 // ── Menus ────────────────────────────────────────────────────────────────────

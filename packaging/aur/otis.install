@@ -1,0 +1,14 @@
+post_install() {
+  cat <<'MSG'
+==> OTIS is installed. Open it from your app launcher, or run: otis
+==> To keep it running in the background from login:
+      systemctl --user enable --now otis
+==> To let Claude Code draw in OTIS:
+      claude mcp add --scope user otis -- otis mcp
+==> Projects are saved in ~/.local/share/otis
+MSG
+}
+
+post_upgrade() {
+  echo '==> OTIS updated. If it runs in the background, restart it: systemctl --user restart otis'
+}

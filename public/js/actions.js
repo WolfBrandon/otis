@@ -138,6 +138,39 @@ export function moveToLayer(layerId) {
   emit('selection');
 }
 
+// Move top-level objects to a layer (the Layers panel's drag and drop).
+// `place` is { above: id } or { below: id } to put them next to an object
+// there; without it they go on top of the layer. Objects keep their
+// stacking order; locked layers are left alone.
+export function moveObjects(ids, layerId, place = null) {
+  const dest = state.project.layers.find(l => l.id === layerId);
+  if (!dest || dest.locked) return;
+  const moving = state.project.layers.flatMap(l => l.locked ? [] : l.objects.filter(o => ids.includes(o.id)));
+  const ref = place?.above ?? place?.below;
+  if (!moving.length || moving.some(o => o.id === ref)) return;
+  mutate(p => {
+    for (const l of p.layers) l.objects = l.objects.filter(o => !moving.includes(o));
+    const i = ref ? dest.objects.findIndex(o => o.id === ref) : -1;
+    const at = i < 0 ? dest.objects.length : place.above ? i + 1 : i;
+    dest.objects.splice(at, 0, ...moving);
+  });
+  state.activeLayerId = dest.id;
+  select(moving.map(o => o.id));
+}
+
+export function deleteObject(id) {
+  const hit = find(id);
+  if (!hit || hit.layer.locked) return;
+  mutate(() => hit.layer.objects.splice(hit.index, 1));
+  if (state.selection.includes(id)) select(state.selection.filter(s => s !== id));
+}
+
+// An empty name goes back to the automatic one ("Box “Title”", "Text"…).
+export function renameObject(id, name) {
+  const hit = find(id);
+  if (hit) mutate(() => { hit.obj.name = name.trim(); });
+}
+
 // ── Layers ───────────────────────────────────────────────────────────────────
 
 export function addLayer() {

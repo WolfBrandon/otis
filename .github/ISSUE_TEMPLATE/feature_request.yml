@@ -1,0 +1,16 @@
+name: Feature idea
+description: Something OTIS could do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like OTIS to do?
+      description: The problem it solves or what you're trying to design. A sketch of the TUI helps.
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: How might it work?
+      description: Optional. Where it would live in OTIS, or how other tools do it.

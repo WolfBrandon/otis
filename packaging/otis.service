@@ -1,0 +1,14 @@
+# OTIS as a systemd user service, for OTIS packages.
+# Start it at login with: systemctl --user enable --now otis
+[Unit]
+Description=OTIS - Omarchy Text Interface Studio (http://localhost:6847)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/otis serve
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

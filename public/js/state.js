@@ -14,7 +14,12 @@ import { THEMES } from './themes.js';
 
 const listeners = {};
 export function on(evt, fn) { (listeners[evt] ||= []).push(fn); }
-export function emit(evt, data) { (listeners[evt] || []).forEach(fn => fn(data)); }
+// A listener that throws is logged, and the others still run.
+export function emit(evt, data) {
+  for (const fn of listeners[evt] || []) {
+    try { fn(data); } catch (e) { console.error(e); }
+  }
+}
 
 export const state = {
   project: null,

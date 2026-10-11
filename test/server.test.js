@@ -4,7 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createServer } from '../server.js';
+import { createServer, defaultDataDir } from '../server.js';
 
 let server, base, port, tmp;
 
@@ -240,4 +240,18 @@ test('current project: the browser reports it, the MCP reads it', async () => {
   assert.equal((await res.json()).id, 'abc');
   res = await fetch(`${base}/api/current`, { method: 'PUT', body: JSON.stringify({ id: '../etc' }) });
   assert.equal((await res.json()).id, null);
+});
+
+test('default data folder: ./data, or ~/.local/share/otis when the app folder is read-only', async () => {
+  const app = path.join(tmp, 'app');
+  await fs.mkdir(app);
+  assert.equal(defaultDataDir(app), path.join(app, 'data'));
+  await fs.chmod(app, 0o555);
+  try {
+    if (process.getuid?.() === 0) return; // root can write anywhere
+    assert.equal(defaultDataDir(app, { XDG_DATA_HOME: '/x/share' }), '/x/share/otis');
+    assert.equal(defaultDataDir(app, { HOME: '/home/u' }), '/home/u/.local/share/otis');
+  } finally {
+    await fs.chmod(app, 0o755);
+  }
 });

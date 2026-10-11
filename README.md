@@ -1,5 +1,9 @@
 # OTIS — Omarchy Text Interface Studio
 
+[![Tests](https://github.com/WolfBrandon/otis/actions/workflows/test.yml/badge.svg)](https://github.com/WolfBrandon/otis/actions/workflows/test.yml)
+[![Latest release](https://img.shields.io/github/v/release/WolfBrandon/otis)](https://github.com/WolfBrandon/otis/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 A design app for terminal UIs. Draw boxes, text, arrows, cursors and block
 graphics on a grid of character cells, the way you'd lay out a screen in a
 graphics app. Then export it as Markdown, plain text, ANSI or PNG.
@@ -66,9 +70,11 @@ before exposing it beyond your LAN.
 ## What it does
 
 - **Canvas in characters.** Set the size in columns × rows; everything snaps to cells.
-- **Layers.** Show, hide, lock, reorder and duplicate layers. Lines join into
-  `├ ┬ ┼` only with lines on the *same* layer, so a popup on its own layer
-  won't fuse with the boxes underneath.
+- **Layers.** Show, hide, lock, reorder and duplicate layers. Drag objects
+  in the Layers panel to move them to another layer or restack them.
+  Double-click an object to rename it, and delete it from there too. Lines
+  join into `├ ┬ ┼` only with lines on the *same* layer, so a popup on its own
+  layer won't fuse with the boxes underneath.
 - **Tools:** Select, Box, Text, Arrow, Table, Cursor, Block fill, Pencil, Eraser, Pan.
 - **Tables.** Pick the number of columns and rows, then drag out the table.
   Drag column and row edges with the mouse to resize them. Double-click a
@@ -197,6 +203,7 @@ There's no build step and there are no dependencies, just ES modules and Node's 
 server.js              static files + JSON API (below)
 mcp.js                 MCP server for AI assistants (stdio), works through the API
 install.sh             native (systemd user service) or Docker install, plus the launcher
+packaging/             the `otis` command, systemd unit, desktop entry and AUR PKGBUILD
 public/index.html      the app shell
 public/js/model.js     objects, borders, line routing, text layout
 public/js/composite.js layers → character grid (junction merging)
@@ -206,6 +213,7 @@ public/js/tools.js     mouse/keyboard tools
 public/js/export.js    Markdown / text / ANSI
 public/js/palette.js   palette slots, theme file import (Omarchy, Alacritty, Ghostty, Kitty)
 public/js/themes.js    generated from Omarchy's stock themes (npm run themes)
+public/js/version.js   version comparison and the About window's update check
 ```
 
 The API: `/api/projects[/:id]` (GET, PUT, DELETE), `/api/library`,
@@ -221,6 +229,18 @@ npm test               # node --test
 npm start              # node server.js
 npm run themes         # regenerate public/js/themes.js from /usr/share/omarchy/themes
 ```
+
+## Versions and contributing
+
+OTIS uses [semantic versioning](https://semver.org/). Help → About OTIS shows
+the version you're running and whether a newer release is out.
+[CHANGELOG.md](CHANGELOG.md) lists what changed in each version.
+
+Bug reports and ideas are welcome in
+[issues](https://github.com/WolfBrandon/otis/issues). To contribute code, see
+[CONTRIBUTING.md](CONTRIBUTING.md). Everyone in the project follows the
+[code of conduct](CODE_OF_CONDUCT.md). Please report security problems
+privately, as [SECURITY.md](SECURITY.md) describes.
 
 ## Credits
 

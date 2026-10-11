@@ -12,6 +12,8 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -372,12 +374,27 @@ export function createServer({
   return server;
 }
 
+// Where projects go without DATA_DIR: ./data next to OTIS, or, when OTIS is
+// installed somewhere read-only (a system package in /usr/share/otis), the
+// usual per-user place, ~/.local/share/otis.
+export function defaultDataDir(appDir = HERE, env = process.env) {
+  try {
+    fsSync.accessSync(appDir, fsSync.constants.W_OK);
+    return path.join(appDir, 'data');
+  } catch {
+    const base = env.XDG_DATA_HOME || path.join(env.HOME || os.homedir(), '.local', 'share');
+    return path.join(base, 'otis');
+  }
+}
+
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 if (isMain) {
   const PORT = Number(process.env.PORT || 6847);
   const HOST = process.env.HOST || '0.0.0.0';
-  const DATA_DIR = path.resolve(HERE, process.env.DATA_DIR || 'data');
-  const THEME_DIRS = (process.env.THEME_DIRS || '/themes').split(':').filter(Boolean);
+  const DATA_DIR = process.env.DATA_DIR ? path.resolve(HERE, process.env.DATA_DIR) : defaultDataDir();
+  // the Docker image's /themes, and your own Omarchy themes
+  const userThemes = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'omarchy', 'themes');
+  const THEME_DIRS = (process.env.THEME_DIRS || `/themes:${userThemes}`).split(':').filter(Boolean);
   createServer({ dataDir: DATA_DIR, themeDirs: THEME_DIRS }).listen(PORT, HOST, () => {
     console.log(`OTIS listening on http://${HOST}:${PORT} (data: ${DATA_DIR})`);
   });
