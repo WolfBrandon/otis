@@ -102,9 +102,10 @@ Both are rectangular frames with an optional border and optional text. The
 - `borderChars`: with `custom`, 8 characters in the order
   top-left, top, top-right, right, bottom-right, bottom, bottom-left, left.
 - `fill`: `null` leaves the interior transparent; a character (usually `" "`)
-  paints every interior cell with that character in `fg`/`bg`. A fill hides
-  everything underneath, background colors included. Without `bg` those
-  cells show the canvas background.
+  paints every interior cell with that character in `fg`/`bg`. A box with a
+  fill is solid: its fill, border and title hide everything underneath,
+  background colors included. Without `bg` those cells show the canvas
+  background.
 - `padding`: blank columns between the border and the text, left and right.
 - `autoSize` (text objects): `w`/`h` follow the text instead of wrapping.
 - `transparent`: spaces in the text let what's underneath show through

@@ -11,6 +11,14 @@ All notable changes to OTIS are listed here. The format follows
 While OTIS is below 1.0, a minor version may still change the file format,
 and this file will say so when it does.
 
+## [0.4.1] - 2026-10-11
+
+### Fixed
+
+- A box with a solid fill now hides what's underneath along its border and
+  title too, not just inside. Before, a highlighted row on a lower layer
+  showed through a popup's edge.
+
 ## [0.4.0] - 2026-10-11
 
 ### Added
@@ -108,6 +116,7 @@ The first version.
   Omarchy launcher.
 - An MCP server (`mcp.js`) so AI assistants can view and draw designs live.
 
+[0.4.1]: https://github.com/WolfBrandon/otis/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/WolfBrandon/otis/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/WolfBrandon/otis/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/WolfBrandon/otis/compare/v0.1.0...v0.2.0

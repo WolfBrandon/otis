@@ -87,12 +87,14 @@ function drawFrame(buf, o, owner) {
   const font = o.font || null;
   const bfg = o.borderFg ?? o.fg;
   const b = bc ? 1 : 0;
+  // with a fill the box is solid: its fill, border and title all hide what's underneath
+  const solid = o.fill != null && 'cover';
 
   // interior fill (an explicit fill, even a space, covers what's underneath)
   if (o.fill != null || o.bg != null) {
     const fc = o.fill == null || o.fill === '' ? ' ' : chars(o.fill)[0];
     for (let r = y + b; r < y + h - b; r++)
-      for (let c = x + b; c < x + w - b; c++) put(buf, c, r, fc, o.fg, o.bg, 0, font, owner, false, null, o.fill != null && 'cover');
+      for (let c = x + b; c < x + w - b; c++) put(buf, c, r, fc, o.fg, o.bg, 0, font, owner, false, null, solid);
   }
 
   // border
@@ -100,22 +102,22 @@ function drawFrame(buf, o, owner) {
     const [tl, t, tr, rt, br, bm, bl, lf] = bc;
     const wt = WEIGHT[o.border];
     if (h === 1) for (let c = x; c < x + w; c++)
-      put(buf, c, y, t, bfg, o.bg, 0, null, owner, true, w > 1 && (c === x || c === x + w - 1) ? { dir: c === x ? 'e' : 'w', weight: wt } : null);
+      put(buf, c, y, t, bfg, o.bg, 0, null, owner, true, w > 1 && (c === x || c === x + w - 1) ? { dir: c === x ? 'e' : 'w', weight: wt } : null, solid);
     else if (w === 1) for (let r = y; r < y + h; r++)
-      put(buf, x, r, lf, bfg, o.bg, 0, null, owner, true, r === y || r === y + h - 1 ? { dir: r === y ? 's' : 'n', weight: wt } : null);
+      put(buf, x, r, lf, bfg, o.bg, 0, null, owner, true, r === y || r === y + h - 1 ? { dir: r === y ? 's' : 'n', weight: wt } : null, solid);
     else {
       for (let c = x + 1; c < x + w - 1; c++) {
-        put(buf, c, y, t, bfg, o.bg, 0, null, owner, true);
-        put(buf, c, y + h - 1, bm, bfg, o.bg, 0, null, owner, true);
+        put(buf, c, y, t, bfg, o.bg, 0, null, owner, true, null, solid);
+        put(buf, c, y + h - 1, bm, bfg, o.bg, 0, null, owner, true, null, solid);
       }
       for (let r = y + 1; r < y + h - 1; r++) {
-        put(buf, x, r, lf, bfg, o.bg, 0, null, owner, true);
-        put(buf, x + w - 1, r, rt, bfg, o.bg, 0, null, owner, true);
+        put(buf, x, r, lf, bfg, o.bg, 0, null, owner, true, null, solid);
+        put(buf, x + w - 1, r, rt, bfg, o.bg, 0, null, owner, true, null, solid);
       }
-      put(buf, x, y, tl, bfg, o.bg, 0, null, owner, true);
-      put(buf, x + w - 1, y, tr, bfg, o.bg, 0, null, owner, true);
-      put(buf, x, y + h - 1, bl, bfg, o.bg, 0, null, owner, true);
-      put(buf, x + w - 1, y + h - 1, br, bfg, o.bg, 0, null, owner, true);
+      put(buf, x, y, tl, bfg, o.bg, 0, null, owner, true, null, solid);
+      put(buf, x + w - 1, y, tr, bfg, o.bg, 0, null, owner, true, null, solid);
+      put(buf, x, y + h - 1, bl, bfg, o.bg, 0, null, owner, true, null, solid);
+      put(buf, x + w - 1, y + h - 1, br, bfg, o.bg, 0, null, owner, true, null, solid);
     }
     // title sits on the top border: ┌─ TITLE ──┐
     if (o.title && w > 4) {
@@ -124,7 +126,7 @@ function drawFrame(buf, o, owner) {
       if (tc.length > room + 2) tc = tc.slice(0, room + 1).concat('…');
       const start = o.titleAlign === 'center' ? x + Math.floor((w - tc.length) / 2)
         : o.titleAlign === 'right' ? x + w - 2 - tc.length : x + 2;
-      tc.forEach((ch, k) => put(buf, start + k, y, ch, o.fg, o.bg, attr, font, owner, false, null, true));
+      tc.forEach((ch, k) => put(buf, start + k, y, ch, o.fg, o.bg, attr, font, owner, false, null, solid || true));
     }
   }
 

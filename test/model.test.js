@@ -300,5 +300,7 @@ test('a solid fill hides the backgrounds underneath, on any layer', () => {
     assert.equal(g.bg[1 * 20 + 2], 'green', 'outside the popup the row keeps its color');
     assert.equal(g.bg[1 * 20 + 6], null, 'inside the popup the canvas shows');
     assert.equal(g.ch[1 * 20 + 6], ' ');
+    assert.equal(g.bg[1 * 20 + 4], null, 'the popup\'s border covers it too');
+    assert.equal(g.ch[1 * 20 + 4], '│');
   }
 });
