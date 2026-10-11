@@ -11,6 +11,15 @@ All notable changes to OTIS are listed here. The format follows
 While OTIS is below 1.0, a minor version may still change the file format,
 and this file will say so when it does.
 
+## [0.3.0] - 2026-10-11
+
+### Added
+
+- OTIS works as an online demo on GitHub Pages. Without the OTIS server it
+  saves designs in the browser, says so once, and links to the full version
+  from the status bar. The About window still shows the version.
+- A demo GIF at the top of the README and a preview image for links to OTIS.
+
 ## [0.2.0] - 2026-10-11
 
 ### Added
@@ -59,5 +68,6 @@ The first version.
   Omarchy launcher.
 - An MCP server (`mcp.js`) so AI assistants can view and draw designs live.
 
+[0.3.0]: https://github.com/WolfBrandon/otis/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/WolfBrandon/otis/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/WolfBrandon/otis/releases/tag/v0.1.0

@@ -364,3 +364,4 @@ dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 10p
 }
 /* wide mode: snippet tiles can sit side by side */
 #sidebar[data-mode="wide"] .snippet-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+#st-storage a { color: var(--accent); }

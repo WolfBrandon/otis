@@ -95,7 +95,7 @@ const local = {
 };
 
 export let storage = local;
-export let appVersion = null;   // from the server; unknown when opened as static files
+export let appVersion = null;
 
 export async function detectStorage() {
   try {
@@ -103,6 +103,11 @@ export async function detectStorage() {
     const health = res.ok ? await res.json() : {};
     if (health.storage === 'server') { storage = server; appVersion = health.version || null; }
   } catch {}
+  // As static files (the online demo), the version comes from version.json,
+  // which the GitHub Pages workflow writes.
+  if (storage === local) {
+    try { appVersion = (await (await fetch('version.json', { cache: 'no-store' })).json()).version || null; } catch {}
+  }
   return storage;
 }
 

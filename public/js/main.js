@@ -12,7 +12,8 @@ import { sampleProject } from './snippets.js';
 import { setRenderer } from './actions.js';
 import { mix, contrastText } from './color.js';
 import { defaultFont } from './fonts.js';
-import { $, toast } from './ui.js';
+import { $, el, toast } from './ui.js';
+import { REPO_URL } from './version.js';
 
 const renderer = new Renderer($('#canvas'));
 setRenderer(renderer);
@@ -145,6 +146,18 @@ on('dirty', () => {
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); });
 window.addEventListener('beforeunload', e => { if (state.dirty) { saveNow(); e.preventDefault(); } });
 
+// Where projects are saved, in the status bar. Without the OTIS server (the
+// online demo) that's this browser, so point people at the full version once.
+function showStorage() {
+  const cell = $('#st-storage');
+  if (storage.kind !== 'local') { cell.textContent = storage.label; return; }
+  cell.replaceChildren(storage.label + ' · ',
+    el('a', { href: REPO_URL + '#run-it', target: '_blank', rel: 'noopener' }, 'Get OTIS'));
+  let seen = true;
+  try { seen = !!localStorage.getItem('otis:welcomed'); localStorage.setItem('otis:welcomed', '1'); } catch {}
+  if (!seen) toast('You\u2019re using OTIS in the browser: designs stay in this browser. Install OTIS for your own Omarchy themes and AI drawing (\u201cGet OTIS\u201d, bottom right).', 9000);
+}
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
 on('doc', () => applyChrome());
@@ -157,6 +170,7 @@ async function boot() {
   initPanels();
   initMenus(renderer, saveNow);
   await detectStorage();
+  showStorage();
 
   try { state.library = await storage.loadLibrary(); }
   catch { state.library = { snippets: [], palettes: [] }; }

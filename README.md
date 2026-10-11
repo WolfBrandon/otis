@@ -10,9 +10,12 @@ graphics app. Then export it as Markdown, plain text, ANSI or PNG.
 
 It's built for [Omarchy](https://omarchy.org) folks, but it works for anyone
 who designs TUIs. It ships with every stock Omarchy theme, so you can see a
-design in each of them.
+design in each of them. And your AI assistant can draw in it with you, live.
 
-![OTIS editing a sample dashboard](docs/screenshot.png)
+**[Try it in your browser](https://wolfbrandon.github.io/otis/)**. There's
+nothing to install, and your designs stay in your browser.
+
+![Drawing a box and a table in OTIS, switching Omarchy themes, then widgets arriving live through the MCP server, the way an AI assistant draws](docs/demo.gif)
 
 ## Run it
 
@@ -49,8 +52,9 @@ tools, and keeps your projects. `--port N` picks another port.
 `./data`. No `npm install` is needed. Plain `docker compose up -d` works too.
 
 **As static files**, from any web server or GitHub Pages: serve the `public/`
-folder. With no OTIS server behind it, projects are saved in the browser
-(localStorage) instead.
+folder. That's how the [online version](https://wolfbrandon.github.io/otis/)
+runs. With no OTIS server behind it, projects are saved in the browser
+(localStorage), and the AI tools and your on-disk themes aren't available.
 
 ### Your own Omarchy themes
 

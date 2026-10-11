@@ -12,7 +12,6 @@ import { resolveColor } from './palette.js';
 import * as A from './actions.js';
 import { FONTS, isInstalled, localMonospaceFonts, rememberFont } from './fonts.js';
 import { pointer } from './tools.js';
-import { storage } from './storage.js';
 import { setHeader, panelBody } from './sidebar.js';
 
 export const hooks = { saveSnippet: null, showGlyphs: null };
@@ -599,7 +598,6 @@ function renderStatus() {
   $('#st-pos').textContent = pointer.inside ? `${pointer.x}, ${pointer.y}` : '–';
   $('#st-sel').textContent = s;
   $('#st-size').textContent = `${p.cols}×${p.rows} · ${activeLayer().name}`;
-  $('#st-storage').textContent = storage.label;
 }
 
 // ── Wiring ───────────────────────────────────────────────────────────────────

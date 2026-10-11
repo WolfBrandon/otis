@@ -1,0 +1,38 @@
+# The online demo: OTIS's public/ folder on GitHub Pages. Without the OTIS
+# server it saves designs in the browser. Deploys each published release (so
+# the demo matches the latest version), or on demand from the Actions tab.
+name: Online demo
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    # GitHub Pages needs a public repository on the free plan
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Add version.json for the About window
+        run: |
+          node -e "const fs = require('fs'); const v = require('./package.json').version; fs.writeFileSync('public/version.json', JSON.stringify({ version: v }) + '\n')"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: public
+      - id: deployment
+        uses: actions/deploy-pages@v4
