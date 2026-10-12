@@ -7,7 +7,7 @@ import { composite } from './composite.js';
 import { toText, toMarkdown, toAnsi, contentRect, projectFromMarkdown } from './export.js';
 import { renderPNG } from './render.js';
 import { storage, lastProject, appVersion } from './storage.js';
-import { REPO_URL, compareVersions, latestRelease } from './version.js';
+import { REPO_URL, INSTALL_CMD, compareVersions, latestRelease, justUpdated } from './version.js';
 import { sampleProject } from './snippets.js';
 import { defaultFont } from './fonts.js';
 import { menuAt, saveSelectionAsSnippet } from './library.js';
@@ -287,11 +287,52 @@ function aboutDialog() {
       status.replaceChildren('You’re ahead of the latest release (', link, ').');
     } else {
       status.className = 'version-status outdated';
-      status.replaceChildren(appVersion ? 'Version ' : 'The latest release is ', link, appVersion ? ' is available. ' : '. ',
-        'To update, run the installer again (', el('code', {}, 'curl -fsSL https://raw.githubusercontent.com/WolfBrandon/otis/main/install.sh | bash'),
-        '), ask your AI agent to update OTIS, or update the package if you installed one.');
+      status.replaceChildren(appVersion ? 'Version ' : 'The latest release is ', link, appVersion ? ' is available. ' : '. ');
+      updateOffer(status);
     }
   });
+}
+
+// How to get the new version: a button when OTIS can update itself (it runs
+// from a git clone, the way install.sh sets it up), otherwise what to run.
+async function updateOffer(status) {
+  const info = await storage.updateInfo().catch(() => null);
+  const code = text => el('code', {}, text);
+  if (info?.kind === 'git') {
+    const note = el('span.update-note');
+    const btn = el('button.primary', { type: 'button', onclick: () => updateNow(btn, note) }, 'Update now');
+    status.append(el('span.update', {}, btn, note));
+    return;
+  }
+  status.append(...({
+    changed: ['OTIS runs from a folder with changes that aren’t committed, so it won’t update itself. Run ', code('git pull'), ' in it instead.'],
+    docker: ['To update, run the installer again with Docker (', code(INSTALL_CMD + ' -s -- --docker'), ').'],
+    package: ['Update it with your package manager, for example ', code('yay -Syu'), '.'],
+  }[info?.kind] || ['To update, run the installer again (', code(INSTALL_CMD), ') or ask your AI agent to update OTIS.']));
+}
+
+// Pull the new code, wait for the server to restart on it, then reload.
+async function updateNow(btn, note) {
+  btn.disabled = true;
+  note.textContent = 'Downloading…';
+  try {
+    await saveNow();
+    const { boot } = await storage.health();
+    const r = await storage.update();
+    if (!r.updated) { note.textContent = 'Nothing new to download yet.'; return; }
+    if (!r.restarting) { note.textContent = `Downloaded ${r.to}. Restart OTIS to finish.`; return; }
+    note.textContent = `Restarting on ${r.to}…`;
+    justUpdated.set(r.to);
+    for (let i = 0; i < 60; i++) {
+      await new Promise(res => setTimeout(res, 1000));
+      const h = await storage.health().catch(() => null);
+      if (h && h.boot !== boot) { location.reload(); return; }
+    }
+    note.textContent = 'OTIS didn’t start again. Its log says why: journalctl --user -u otis -n 30';
+  } catch (e) {
+    btn.disabled = false;
+    note.textContent = e.message;
+  }
 }
 
 // ── Menus ────────────────────────────────────────────────────────────────────

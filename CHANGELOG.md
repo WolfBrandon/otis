@@ -11,6 +11,19 @@ All notable changes to OTIS are listed here. The format follows
 While OTIS is below 1.0, a minor version may still change the file format,
 and this file will say so when it does.
 
+## [0.5.0] - 2026-10-11
+
+### Added
+
+- **Update now**, in Help → About: when a new version is out, OTIS downloads
+  it and restarts itself, and the window reloads on the new version. It works
+  when OTIS was installed with the install command (or runs from a clone of
+  the repository without uncommitted changes); otherwise About says what to
+  run. It brings in the latest code, which can be a little newer than the
+  latest release. Other open OTIS windows reload by themselves too.
+- `/api/update` in the server, which the button uses, and a `boot` id in
+  `/api/health` that changes whenever the server restarts.
+
 ## [0.4.2] - 2026-10-11
 
 ### Fixed

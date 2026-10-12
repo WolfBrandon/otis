@@ -96,10 +96,16 @@ The agent works on the tab you're looking at unless you name another one.
 
 ## 8. Keep it up to date
 
-- **Update:** run the install command again, or ask your agent to update OTIS.
-  **Help → About OTIS** says when a new version is out.
+- **Update:** **Help → About OTIS** says when a new version is out. Click
+  **Update now**: OTIS downloads it, restarts and reloads in a few seconds,
+  and your projects aren't touched. Running the install command again (or
+  asking your agent to update OTIS) does the same, and also refreshes the
+  launcher and agent connections. Start a new agent session afterwards to get
+  updated tools.
 - **Trouble:** `install.sh --check` first, then the log:
-  `journalctl --user -u otis -n 30`.
+  `journalctl --user -u otis -n 30`. After an update, the log shows OTIS
+  stopping with "exit-code" right after "Restarting on the new version":
+  that's how it restarts, not a crash.
 - **Remove:** `~/.local/share/otis/app/install.sh --uninstall` takes out the
   app, launcher and agent connections. Your projects stay in
   `~/.local/share/otis/projects`.

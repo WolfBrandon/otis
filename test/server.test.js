@@ -56,6 +56,7 @@ test('health', async () => {
   assert.equal(body.name, 'otis');
   assert.equal(body.storage, 'server');
   assert.match(body.version, /^\d+\.\d+\.\d+/);
+  assert.equal(typeof body.boot, 'string', 'changes on every start, so windows can tell');
 });
 
 test('static index', async () => {

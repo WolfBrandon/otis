@@ -59,6 +59,10 @@ const server = {
   },
   // Tell the server what's open, for the MCP tools.
   setCurrent: (id, tab, selection = []) => api('PUT', 'current', { id, tab, selection }).catch(() => {}),
+  health: () => api('GET', 'health'),
+  // Updating OTIS itself (Help → About): {kind} says whether it can.
+  updateInfo: () => api('GET', 'update'),
+  update: () => api('POST', 'update', {}),
 };
 
 const local = {
@@ -92,6 +96,8 @@ const local = {
   etag: () => null,
   listen() {},
   setCurrent() {},
+  async health() { return null; },
+  async updateInfo() { return null; },
 };
 
 export let storage = local;

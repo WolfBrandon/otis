@@ -53,7 +53,8 @@ Either way you get:
   agent session afterwards so the tools load.
 
 OTIS lives in `~/.local/share/otis/app` and your projects in
-`~/.local/share/otis/projects`. Run the same command again to update.
+`~/.local/share/otis/projects`. To update, click **Update now** in Help →
+About when it says a new version is out, or run the same command again.
 `install.sh --check` shows what's set up, and `install.sh --uninstall` removes
 the service, launcher and agent connections but keeps your projects.
 
@@ -271,7 +272,9 @@ public/js/version.js   version comparison and the About window's update check
 The API: `/api/projects[/:id]` (GET, PUT, DELETE), `/api/library`,
 `/api/omarchy/themes`, `/api/events` (Server-Sent Events: a `project` event
 after every save, `deleted`, and `show`), `/api/current` (the project the
-browser has open) and `/api/show` (ask open windows to switch). Project GETs
+browser has open), `/api/show` (ask open windows to switch) and
+`/api/update` (GET: can OTIS update itself; POST: pull the new code and
+restart, used by Help → About). Project GETs
 return an `ETag`. A PUT with `If-Match` is refused with 412 when someone else
 saved in between, which is how the browser and the MCP server avoid
 overwriting each other.

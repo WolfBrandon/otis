@@ -9,13 +9,13 @@ import { initTabs } from './tabs.js';
 import { initSidebar } from './sidebar.js';
 import { initLibrary } from './library.js';
 import { initMenus, chromeFollows } from './menus.js';
-import { detectStorage, storage, lastProject } from './storage.js';
+import { detectStorage, storage, lastProject, appVersion } from './storage.js';
 import { sampleProject } from './snippets.js';
 import { setRenderer } from './actions.js';
 import { mix, contrastText } from './color.js';
 import { defaultFont } from './fonts.js';
 import { $, el, toast } from './ui.js';
-import { REPO_URL } from './version.js';
+import { REPO_URL, justUpdated } from './version.js';
 
 const renderer = new Renderer($('#canvas'));
 setRenderer(renderer);
@@ -169,6 +169,16 @@ function showStorage() {
   if (!seen) toast('You\u2019re using OTIS in the browser: designs stay in this browser. Install OTIS for your own Omarchy themes and AI drawing (\u201cGet OTIS\u201d, bottom right).', 9000);
 }
 
+// When the server comes back on a new version (OTIS updated itself), save and
+// reload, so this window runs the same code as the server.
+async function reloadIfUpdated() {
+  const h = await storage.health().catch(() => null);
+  if (!h?.version || !appVersion || h.version === appVersion) return;
+  await saveNow();
+  justUpdated.set(h.version);
+  location.reload();
+}
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
 on('doc', () => applyChrome());
@@ -184,6 +194,8 @@ async function boot() {
   initMenus(renderer, saveNow);
   await detectStorage();
   showStorage();
+  const updated = justUpdated.take();
+  if (updated && updated === appVersion) toast(`OTIS updated to ${updated}. Help → About → What’s new lists the changes.`, 6000);
 
   try { state.library = await storage.loadLibrary(); }
   catch { state.library = { snippets: [], palettes: [] }; }
@@ -206,7 +218,7 @@ async function boot() {
       syncSoon();
     },
     show: ({ id, tab }) => openProject(id, tab),
-    open: reportCurrent,   // (re)connected: the server may have restarted
+    open: () => { reportCurrent(); reloadIfUpdated(); },   // (re)connected: the server may have restarted
   });
   window.addEventListener('hashchange', () => {
     const id = location.hash.match(/^#p=([\w-]+)/)?.[1];

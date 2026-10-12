@@ -382,6 +382,7 @@ dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 10p
 .version-status.current { color: var(--accent); }
 .version-status.outdated { color: var(--danger); }
 .version-status code { font-family: var(--ui-font); color: var(--text); overflow-wrap: anywhere; user-select: all; }
+.version-status .update { display: flex; align-items: center; gap: 10px; margin-top: 8px; color: var(--muted); }
 
 #toast {
   position: fixed; left: 50%; bottom: 40px; transform: translate(-50%, 20px); z-index: 2000;

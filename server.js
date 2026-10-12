@@ -8,8 +8,13 @@
 //
 // There is no authentication. OTIS is meant for a desktop or a homelab LAN;
 // put it behind a reverse proxy with auth before exposing it anywhere else.
+//
+// Help → About can update OTIS when it runs from a git clone (what install.sh
+// sets up): /api/update pulls the new code, then the server exits and systemd
+// starts it again.
 
 import http from 'node:http';
+import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -44,9 +49,9 @@ class HttpError extends Error {
   }
 }
 
-async function readVersion() {
+async function readVersion(dir = HERE) {
   try {
-    const pkg = JSON.parse(await fs.readFile(path.join(HERE, 'package.json'), 'utf8'));
+    const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
     return pkg.version || '0.0.0';
   } catch {
     return '0.0.0';
@@ -115,21 +120,59 @@ async function writeAtomic(file, text) {
   await fs.rename(tmp, file);
 }
 
+// Run git in `dir` → its output. No shell, and it never stops to ask for a
+// password.
+function git(dir, ...args) {
+  return new Promise((resolve, reject) => {
+    execFile('git', ['-C', dir, ...args], { timeout: 120000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
+      (err, stdout, stderr) => (err ? reject(new Error((stderr || err.message).trim())) : resolve(stdout.trim())));
+  });
+}
+
+// Can OTIS update itself? Only from its own git clone with nothing changed
+// in it ("git"). Otherwise: "changed" (someone's working copy), "docker",
+// "package" (a read-only system install) or "none" (no git, e.g. a download).
+async function updateKind(appDir) {
+  if (fsSync.existsSync('/.dockerenv') || fsSync.existsSync('/run/.containerenv')) return 'docker';
+  if (!fsSync.existsSync(path.join(appDir, '.git'))) {
+    try {
+      fsSync.accessSync(appDir, fsSync.constants.W_OK);
+      return 'none';
+    } catch {
+      return 'package';
+    }
+  }
+  try {
+    if (await git(appDir, 'status', '--porcelain', '--untracked-files=no')) return 'changed';
+    await git(appDir, 'rev-parse', '--abbrev-ref', '@{upstream}'); // follows a branch it can pull
+    return 'git';
+  } catch {
+    return 'none';
+  }
+}
+
 function titleCase(id) {
   return id.split(/[-_]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
 }
 
+// `restart` is called after an update has pulled new code; without it the
+// update asks the user to restart OTIS themselves.
 export function createServer({
   dataDir = path.join(HERE, 'data'),
   themeDirs = ['/themes'],
   publicDir = path.join(HERE, 'public'),
+  appDir = HERE,
+  restart = null,
 } = {}) {
   dataDir = path.resolve(dataDir);
   publicDir = path.resolve(publicDir);
   const projectsDir = path.join(dataDir, 'projects');
   const libraryFile = path.join(dataDir, 'library.json');
-  const versionPromise = readVersion();
+  const versionPromise = readVersion(appDir);
   const ready = fs.mkdir(projectsDir, { recursive: true });
+  // Changes on every start, so a window can tell the server restarted.
+  const boot = crypto.randomUUID();
+  let updating = false;
 
   // Live updates over Server-Sent Events.
   const listeners = new Set();
@@ -215,7 +258,44 @@ export function createServer({
     const parts = pathname.split('/').filter(Boolean).slice(1); // drop "api"
 
     if (parts.length === 1 && parts[0] === 'health' && method === 'GET') {
-      return sendJson(res, 200, { ok: true, name: 'otis', version: await versionPromise, storage: 'server' });
+      return sendJson(res, 200, { ok: true, name: 'otis', version: await versionPromise, storage: 'server', boot });
+    }
+
+    // Updating OTIS itself: GET says whether it can, POST pulls the new code
+    // and restarts.
+    if (parts.length === 1 && parts[0] === 'update') {
+      if (method === 'GET') return sendJson(res, 200, { kind: await updateKind(appDir), version: await versionPromise });
+      if (method !== 'POST') throw new HttpError(405, 'Method not allowed');
+      // Other websites can't send this header without asking first (CORS),
+      // and OTIS never says yes, so a page you visit can't start an update.
+      if (!String(req.headers['content-type'] || '').startsWith('application/json')) throw new HttpError(415, 'Send JSON');
+      if (updating) throw new HttpError(409, 'OTIS is already updating');
+      updating = true;
+      try {
+        const kind = await updateKind(appDir);
+        if (kind !== 'git') throw new HttpError(409, kind === 'changed' ? 'OTIS’s folder has changes that aren’t committed, so it won’t update itself' : 'This copy of OTIS can’t update itself');
+        const from = await versionPromise;
+        const before = await git(appDir, 'rev-parse', 'HEAD');
+        try {
+          await git(appDir, 'pull', '--ff-only', '--quiet');
+        } catch (err) {
+          throw new HttpError(502, 'Couldn’t download the update: ' + err.message);
+        }
+        if ((await git(appDir, 'rev-parse', 'HEAD')) === before) {
+          updating = false;
+          return sendJson(res, 200, { updated: false, from, to: from, restarting: false });
+        }
+        const to = await readVersion(appDir);
+        console.log(`OTIS updated from ${from} to ${to}`);
+        sendJson(res, 200, { updated: true, from, to, restarting: !!restart });
+        // let saves in progress finish, then restart on the new code
+        if (restart) res.on('finish', () => Promise.all(locks.values()).then(() => setTimeout(restart, 100)));
+        else updating = false;
+        return;
+      } catch (err) {
+        updating = false;
+        throw err;
+      }
     }
 
     if (parts[0] === 'projects') {
@@ -400,7 +480,13 @@ if (isMain) {
   // the Docker image's /themes, and your own Omarchy themes
   const userThemes = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'omarchy', 'themes');
   const THEME_DIRS = (process.env.THEME_DIRS || `/themes:${userThemes}`).split(':').filter(Boolean);
-  createServer({ dataDir: DATA_DIR, themeDirs: THEME_DIRS }).listen(PORT, HOST, () => {
+  // systemd sets INVOCATION_ID for its services. OTIS's unit restarts it when
+  // it exits with an error, so after an update, exiting with 1 restarts it.
+  const restart = process.env.INVOCATION_ID ? () => {
+    console.log('Restarting on the new version');
+    process.exit(1);
+  } : null;
+  createServer({ dataDir: DATA_DIR, themeDirs: THEME_DIRS, restart }).listen(PORT, HOST, () => {
     console.log(`OTIS listening on http://${HOST}:${PORT} (data: ${DATA_DIR})`);
   });
 }

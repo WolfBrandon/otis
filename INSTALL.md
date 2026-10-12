@@ -62,6 +62,8 @@ Then tell the user, briefly:
 
 ## Updating and removing
 
-- Update: run the step 2 command again.
+- Update: run the step 2 command again. (The user can also click Update now
+  in OTIS's Help → About; that updates the app but not the launcher or agent
+  connections.)
 - Remove: `~/.local/share/otis/app/install.sh --uninstall`. That takes out
   the service, launcher and agent connections, and keeps the projects.

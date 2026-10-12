@@ -1,9 +1,20 @@
 // Version checks for the About window. OTIS uses semantic versioning
 // (MAJOR.MINOR.PATCH). package.json holds the version, and each release is
-// published on GitHub as a release tagged vX.Y.Z. Pure apart from the fetch.
+// published on GitHub as a release tagged vX.Y.Z. compareVersions is pure;
+// the rest runs in the browser.
 
 export const REPO = 'WolfBrandon/otis';
 export const REPO_URL = 'https://github.com/' + REPO;
+export const INSTALL_CMD = `curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash`;
+
+// Carries "OTIS just updated to X" across the reload that follows an update.
+export const justUpdated = {
+  set(version) { try { sessionStorage.setItem('otis:updated', version); } catch {} },
+  take() {
+    try { const v = sessionStorage.getItem('otis:updated'); sessionStorage.removeItem('otis:updated'); return v; }
+    catch { return null; }
+  },
+};
 
 // -1, 0 or 1. Compares numerically, so 0.10.0 is newer than 0.9.0.
 export function compareVersions(a, b) {
