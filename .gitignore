@@ -9,3 +9,5 @@ packaging/aur/src/
 packaging/aur/pkg/
 packaging/aur/*.tar.*
 public/version.json
+# /otis-stats keeps its traffic history here
+.claude/skills/otis-stats/history.json

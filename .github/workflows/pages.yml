@@ -30,6 +30,17 @@ jobs:
       - name: Add version.json for the About window
         run: |
           node -e "const fs = require('fs'); const v = require('./package.json').version; fs.writeFileSync('public/version.json', JSON.stringify({ version: v }) + '\n')"
+      # Counts visits to the demo, without cookies. Only this deployed copy gets
+      # it: OTIS itself never phones home. Set up in the repository variable
+      # GOATCOUNTER (see .claude/skills/otis-stats/SKILL.md).
+      - name: Count demo visits with GoatCounter
+        if: ${{ vars.GOATCOUNTER != '' }}
+        env:
+          CODE: ${{ vars.GOATCOUNTER }}
+        run: |
+          [[ $CODE =~ ^[a-z0-9-]+$ ]] || { echo "GOATCOUNTER should be a GoatCounter code like otis-demo"; exit 1; }
+          sed -i "s|</body>|  <script data-goatcounter=\"https://$CODE.goatcounter.com/count\" async src=\"https://gc.zgo.at/count.js\"></script>\n</body>|" public/index.html
+          grep -c goatcounter public/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

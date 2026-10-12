@@ -13,7 +13,9 @@ who designs TUIs. It ships with every stock Omarchy theme, so you can see a
 design in each of them. And your AI assistant can draw in it with you, live.
 
 **[Try it in your browser](https://wolfbrandon.github.io/otis/)**. There's
-nothing to install, and your designs stay in your browser. New to OTIS?
+nothing to install, and your designs stay in your browser. (The online demo
+counts visits with [GoatCounter](https://www.goatcounter.com), without
+cookies. OTIS itself never phones home.) New to OTIS?
 **[The how-to](docs/HOWTO.md)** walks from your first screen through tabs,
 popups and TextArt to building it with your AI agent.
 
