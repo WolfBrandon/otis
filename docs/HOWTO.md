@@ -29,9 +29,10 @@ isn't.
 2. **Draw the frame.** `B` draws boxes: pick a border style in the bar above
    the canvas, then drag. Boxes take a title on the top border. Lines that
    touch join up into proper corners and tees (`├ ┬ ┼`).
-3. **Fill it in.** `T` for text, `#` for a table, `A` for arrows. The
-   **Snippets** panel has ready-made widgets (progress bars, sparklines,
-   status lines, menus): click one to drop it in.
+3. **Fill it in.** `T` for text: click anywhere, a box included, to type new
+   text there, or click existing text to edit it. `#` for a table, `A` for
+   arrows. The **Snippets** panel has ready-made widgets (progress bars,
+   sparklines, status lines, menus): click one to drop it in.
 4. **Add a title.** `Shift + T` opens TextArt. Type the name, pick a font
    (Blocks 3D is the solid look of OTIS's own logo) and a size.
 5. **Color it with the palette.** Pick colors from the **Palette** panel's

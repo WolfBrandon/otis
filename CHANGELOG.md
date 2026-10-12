@@ -11,6 +11,17 @@ All notable changes to OTIS are listed here. The format follows
 While OTIS is below 1.0, a minor version may still change the file format,
 and this file will say so when it does.
 
+## [0.4.2] - 2026-10-11
+
+### Fixed
+
+- The Text tool adds new text when you click on a box or a table, instead of
+  editing the box's own text. Clicking existing text still edits it. If the
+  box is on a layer above the active one, the new text goes on the box's
+  layer, so it shows on top.
+- Rename and other dialogs open with their text selected, so typing replaces
+  the old name instead of adding to it.
+
 ## [0.4.1] - 2026-10-11
 
 ### Fixed
@@ -116,6 +127,7 @@ The first version.
   Omarchy launcher.
 - An MCP server (`mcp.js`) so AI assistants can view and draw designs live.
 
+[0.4.2]: https://github.com/WolfBrandon/otis/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/WolfBrandon/otis/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/WolfBrandon/otis/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/WolfBrandon/otis/compare/v0.2.0...v0.3.0

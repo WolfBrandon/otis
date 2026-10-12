@@ -52,7 +52,10 @@ export function modal(title, body, buttons = [{ label: 'Close', value: null }], 
     });
     document.body.append(d);
     d.showModal();
-    d.querySelector('input, textarea')?.focus();
+    // the first field starts selected, so typing replaces what's there
+    const first = d.querySelector('input, textarea');
+    first?.focus();
+    if (first?.tagName === 'INPUT') first.select();
   });
 }
 

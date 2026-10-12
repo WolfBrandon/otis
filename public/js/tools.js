@@ -3,7 +3,7 @@
 
 import {
   state, emit, on, find, findDeep, selected, select, setTool, beginGesture, endGesture, changed,
-  startEditing, stopEditing, editTarget, undo, redo, activeTab, switchTab,
+  startEditing, stopEditing, editTarget, undo, redo, activeTab, activeLayer, switchTab,
 } from './state.js';
 import {
   makeBox, makeText, makeLine, makeBlock, makeCursor, makePaint, makeTable,
@@ -48,16 +48,30 @@ function pickObject(cell) {
 }
 
 // The text, box or table to edit at a cell: the object itself, or for a
-// group the topmost editable child under the cell.
-function editableAt(o, x, y) {
+// group the topmost editable child under the cell. `types` narrows it down.
+const EDITABLE = ['text', 'box', 'table'];
+function editableAt(o, x, y, types = EDITABLE) {
   if (!o) return null;
-  if (o.type === 'text' || o.type === 'box' || o.type === 'table') return o;
+  if (types.includes(o.type)) return o;
   if (o.type !== 'group') return null;
   for (let i = o.children.length - 1; i >= 0; i--) {
     const c = o.children[i];
-    if (!c.hidden && hitTest(c, x, y)) { const e = editableAt(c, x, y); if (e) return e; }
+    if (!c.hidden && hitTest(c, x, y)) { const e = editableAt(c, x, y, types); if (e) return e; }
   }
   return null;
+}
+
+// The layer for a new object drawn over `under`: the active layer, unless
+// that's below `under`'s layer and the new object would be hidden; then
+// `under`'s layer, where it goes on top.
+function layerOver(under) {
+  const layers = activeTab().layers;
+  const there = under && layerOf(under.id);
+  if (there && layers.indexOf(there) > layers.indexOf(activeLayer())) {
+    state.activeLayerId = there.id;
+    return there;
+  }
+  return A.writableLayer();
 }
 
 function editAt(o, cell) {
@@ -315,10 +329,13 @@ const TOOLS = {
     fg: state.brush.fg, bg: state.brush.bg,
   }), { clickSize: [1, 1], after: null }),
 
+  // Clicking text edits it. Anywhere else, a panel or a table included,
+  // starts new text on top.
   text(cell) {
-    const hit = editableAt(pickObject(cell), cell.x, cell.y);
+    const under = pickObject(cell);
+    const hit = editableAt(under, cell.x, cell.y, ['text']);
     if (hit) { editAt(hit, cell); return null; }
-    const layer = A.writableLayer();
+    const layer = layerOver(under);
     if (!layer) return null;
     beginGesture();
     const o = makeText(cell.x, cell.y, '', { fg: state.brush.fg, bg: state.brush.bg });

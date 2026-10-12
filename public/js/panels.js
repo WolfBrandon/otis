@@ -601,7 +601,7 @@ function renderOptions() {
     case 'block': parts = [glyphRow(BLOCK_GLYPHS), hint('Drag to fill a rectangle')]; break;
     case 'pencil': parts = [glyphRow(['█', '▓', '▒', '░', '▀', '▄', '●', '*', '#', '·']), hint('Draw freehand · strokes add to the selected drawing')]; break;
     case 'cursor': parts = [glyphRow(CURSOR_GLYPHS), hint('Click to place a cursor or selection marker')]; break;
-    case 'text': parts = [hint('Click to type · drag to make a wrapping text frame · Esc to finish')]; break;
+    case 'text': parts = [hint('Click to type, even on a box · drag to make a wrapping text frame · click text to edit it · Esc to finish')]; break;
     case 'eraser': parts = [hint('Erases pencil drawing on the active layer')]; break;
     case 'hand': parts = [hint('Drag to pan · scroll to pan · Ctrl+scroll to zoom')]; break;
     default: parts = [hint('Click to select · drag to move · Alt+drag to copy · Shift+click to add · double-click text to edit')];
