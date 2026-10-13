@@ -63,18 +63,22 @@ const status = text => { $('#save-status').textContent = text; };
 
 async function saveNow(announce = false) {
   clearTimeout(saveTimer);
+  // one save at a time: wait for the one on its way, then see what's left
+  while (saving) await saving;
   if (!state.project || (!state.dirty && !announce)) return;
-  if (saving) await saving;
   status('Saving…');
   const p = state.project;
+  const rev = state.rev;   // the project goes out as it is right now
   saving = storage.saveProject(p).then(() => {
-    if (state.project === p) state.dirty = false;
     lastProject.set(p.id);
-    status('Saved');
     if (announce) toast('Saved');
+    if (state.project === p && state.rev === rev) { state.dirty = false; status('Saved'); }
+    // edited while this save was on its way: those edits still need saving
+    else if (state.project === p) { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 800); }
   }).catch(e => {
+    if (state.project !== p) return;   // a project that isn't open any more
     if (e.status === 412) {
-      // the AI or another window saved this project since we loaded it
+      // the AI or another window saved (or deleted) this project since we loaded it
       status('Changed elsewhere');
       return syncSoon(true);
     }
@@ -103,15 +107,22 @@ function syncSoon(conflict = false) {
   syncTimer = setTimeout(async () => {
     const p = state.project;
     if (!p) return;
-    if (saving || gestureActive() || state.editing || (state.dirty && !conflicted)) return syncSoon();
+    const busy = () => saving || gestureActive() || state.editing;
+    if (busy() || (state.dirty && !conflicted)) return syncSoon();
     if (!conflicted && remoteTag === storage.etag(p.id)) return;
+    const rev = state.rev;
     let fresh;
-    try { fresh = await storage.loadProject(p.id); } catch { return; }
+    try { fresh = await storage.fetchProject(p.id); }
+    catch (e) { if (e.status === 404) projectDeleted(p.id); return; }
     if (state.project !== p) return;
+    // edited while it loaded: keep the edits and try again later (a save
+    // still carries the old ETag, so it can't overwrite the newer copy)
+    if (state.rev !== rev || busy()) return syncSoon();
+    storage.adopt(p.id, fresh.etag);
     const lost = conflicted && state.dirty;
     conflicted = false;
     const before = new Map(p.tabs.map(t => [t.id, JSON.stringify(t)]));
-    replaceProject(fresh);
+    replaceProject(fresh.data);
     status('Saved');
     // say so when the change was on a tab other than the open one
     const changed = state.project.tabs.filter(t => before.get(t.id) !== JSON.stringify(t));
@@ -122,6 +133,28 @@ function syncSoon(conflict = false) {
       : (lastBy === 'mcp' ? 'Updated by the AI' : 'Updated in another window') + elsewhere + ' \u2014 Ctrl+Z to undo', lost ? 8000 : 4000);
   }, 250);
 }
+
+// The open project was deleted, here or in another window: open the most
+// recent one left (or the sample) instead of saving it back.
+async function projectDeleted(id) {
+  if (state.project?.id !== id) return;
+  const name = state.project.name || 'Untitled';
+  clearTimeout(saveTimer);
+  clearTimeout(syncTimer);   // a reload queued for the deleted one
+  conflicted = false;
+  state.dirty = false;
+  let next = null;
+  try {
+    const [recent] = (await storage.listProjects()).filter(p => p.id !== id);
+    if (recent) next = await storage.loadProject(recent.id);
+  } catch {}
+  if (state.project?.id !== id) return;   // something else opened meanwhile
+  setProject(next || sampleProject(defaultFont()));
+  if (next) lastProject.set(next.id);
+  status(next ? 'Saved' : '');
+  toast(`\u201c${name}\u201d was deleted, so OTIS opened ${next ? `\u201c${next.name || 'Untitled'}\u201d` : 'the sample'}.`, 6000);
+}
+on('deleted', projectDeleted);
 
 // Open a project (and tab) the AI asked to show, or a #p=<id> link.
 async function openProject(id, tab = null) {
@@ -218,6 +251,7 @@ async function boot() {
       syncSoon();
     },
     show: ({ id, tab }) => openProject(id, tab),
+    deleted: ({ id }) => projectDeleted(id),
     open: () => { reportCurrent(); reloadIfUpdated(); },   // (re)connected: the server may have restarted
   });
   window.addEventListener('hashchange', () => {

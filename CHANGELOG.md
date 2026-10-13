@@ -11,6 +11,22 @@ All notable changes to OTIS are listed here. The format follows
 While OTIS is below 1.0, a minor version may still change the file format,
 and this file will say so when it does.
 
+## [0.5.1] - 2026-10-13
+
+### Fixed
+
+- An edit made while OTIS was saving could be marked as saved when it
+  wasn't, and be lost if you closed the window. The next autosave now saves
+  it.
+- An edit made while OTIS was loading a change from the AI or another window
+  could be replaced without a word. OTIS now keeps it; if both sides changed
+  the project, it says so, and Ctrl+Z brings your edit back.
+- Deleting a project that's open (in this window or another one) no longer
+  brings it back at the next autosave. The window opens your most recent
+  other project instead, and the server refuses saves to a deleted project.
+- Saving twice at once, such as Ctrl+S during an autosave, no longer reports
+  "Changed elsewhere" by mistake.
+
 ## [0.5.0] - 2026-10-11
 
 ### Added

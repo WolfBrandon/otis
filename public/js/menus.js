@@ -117,6 +117,7 @@ export async function openDialog() {
         if (!(await confirmDialog('Delete project?', `“${p.name}” will be deleted from ${storage.kind === 'server' ? 'the OTIS server' : 'this browser'}. This can't be undone.`, 'Delete'))) return;
         await storage.deleteProject(p.id);
         row.remove();
+        emit('deleted', p.id);   // the open one: move off it rather than save it back
       },
     }, '✕')));
   const body = el('div.open', {},

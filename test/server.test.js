@@ -189,6 +189,26 @@ test('ETag and If-Match: a stale save is refused with 412', async () => {
   await fetch(`${base}/api/projects/tagged`, { method: 'DELETE' });
 });
 
+test('a save from before a delete doesn’t bring the project back', async () => {
+  const put = (body, tag) => fetch(`${base}/api/projects/gone`, {
+    method: 'PUT', body: JSON.stringify(body), headers: tag ? { 'If-Match': tag } : {},
+  });
+  const { etag } = await (await put(project)).json();
+  assert.equal((await fetch(`${base}/api/projects/gone`, { method: 'DELETE' })).status, 204);
+
+  // a window that still had it open autosaves with the old ETag
+  const res = await put({ ...project, name: 'Stale' }, etag);
+  assert.equal(res.status, 412);
+  assert.match((await res.json()).error, /deleted/);
+  assert.equal((await fetch(`${base}/api/projects/gone`)).status, 404);
+
+  // a new project (no If-Match, or *) is still created
+  assert.equal((await put(project, '*')).status, 200);
+  assert.equal((await fetch(`${base}/api/projects/gone`, { method: 'DELETE' })).status, 204);
+  assert.equal((await put(project)).status, 200);
+  await fetch(`${base}/api/projects/gone`, { method: 'DELETE' });
+});
+
 // Read Server-Sent Events until `count` have arrived.
 function listen(count) {
   return new Promise((resolve, reject) => {

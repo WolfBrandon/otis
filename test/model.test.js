@@ -304,3 +304,15 @@ test('a solid fill hides the backgrounds underneath, on any layer', () => {
     assert.equal(g.ch[1 * 20 + 4], '│');
   }
 });
+
+import { state as appState, setProject, mutate } from '../public/js/state.js';
+
+test('every edit bumps the revision, so a save can tell it missed one', () => {
+  setProject(makeProject({ name: 'A' }));
+  const rev = appState.rev;
+  mutate((p) => { p.name = 'B'; });
+  assert.equal(appState.rev, rev + 1);
+  assert.equal(appState.dirty, true);
+  mutate((p) => { p.name = 'B'; }); // no change, no new revision
+  assert.equal(appState.rev, rev + 1);
+});

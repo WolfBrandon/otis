@@ -9,6 +9,7 @@
 //   'view'      pan/zoom/grid changed (redraw only)
 //   'library'   snippets or saved palettes changed
 //   'dirty'     there are unsaved changes
+//   'deleted'   a project was deleted (its id)
 
 import { FORMAT_VERSION, makeProject, makeLayer, walk, fitText, cellFrame } from './model.js';
 import { THEMES } from './themes.js';
@@ -36,6 +37,7 @@ export const state = {
   editing: null,          // { id, caret } while typing into a text object
   library: { snippets: [], palettes: [] },
   dirty: false,
+  rev: 0,                 // goes up with every edit, so a save can tell what it missed
 };
 
 export function defaultPalette() {
@@ -104,6 +106,7 @@ function pushUndo(snap) {
 }
 
 export function markDirty() {
+  state.rev++;
   state.dirty = true;
   emit('dirty');
 }

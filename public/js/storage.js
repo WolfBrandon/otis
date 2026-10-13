@@ -39,6 +39,10 @@ const server = {
     etags.set(id, etag);
     return data;
   },
+  // Load without taking its ETag: call adopt() once the copy is used, so a
+  // copy that's thrown away can't make a later save overwrite it.
+  fetchProject: id => api('GET', 'projects/' + encodeURIComponent(id)),
+  adopt: (id, etag) => etags.set(id, etag),
   async saveProject(p) {
     const tag = etags.get(p.id);
     const r = await api('PUT', 'projects/' + encodeURIComponent(p.id), p, tag ? { 'If-Match': tag } : {});
@@ -73,9 +77,11 @@ const local = {
   },
   async loadProject(id) {
     const p = LS.get('otis:project:' + id);
-    if (!p) throw new Error('Project not found');
+    if (!p) throw Object.assign(new Error('Project not found'), { status: 404 });
     return p;
   },
+  async fetchProject(id) { return { data: await local.loadProject(id), etag: null }; },
+  adopt() {},
   async saveProject(p) {
     LS.set('otis:project:' + p.id, p);
     const idx = LS.get('otis:index', {});

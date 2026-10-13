@@ -2,8 +2,9 @@
 // snippet/palette library as JSON files in DATA_DIR. Node stdlib only.
 //
 // Every saved project has an ETag (a hash of the file). A save that sends
-// If-Match with an old tag is refused with 412, so the browser and the MCP
-// server (mcp.js) never overwrite each other's changes. Browsers listen on
+// If-Match with an old tag, or for a project deleted since, is refused with
+// 412, so the browser and the MCP server (mcp.js) never overwrite each
+// other's changes. Browsers listen on
 // /api/events and reload a project when it changes elsewhere.
 //
 // There is no authentication. OTIS is meant for a desktop or a homelab LAN;
@@ -321,7 +322,9 @@ export function createServer({
           return withLock(id, async () => {
             if (ifMatch && ifMatch !== '*') {
               const old = await fs.readFile(file, 'utf8').catch(() => null);
-              if (old !== null && etagOf(old) !== ifMatch) {
+              // gone: it was deleted since it was loaded, so don't bring it back
+              if (old === null) return sendJson(res, 412, { error: 'The project was deleted somewhere else' });
+              if (etagOf(old) !== ifMatch) {
                 return sendJson(res, 412, { error: 'The project was changed somewhere else since you loaded it', etag: etagOf(old) });
               }
             }
@@ -334,14 +337,16 @@ export function createServer({
           });
         }
         if (method === 'DELETE') {
-          try {
-            await fs.unlink(file);
-          } catch {
-            throw new HttpError(404, 'Project not found');
-          }
-          broadcast('deleted', { id });
-          res.writeHead(204);
-          return res.end();
+          return withLock(id, async () => {
+            try {
+              await fs.unlink(file);
+            } catch {
+              throw new HttpError(404, 'Project not found');
+            }
+            broadcast('deleted', { id });
+            res.writeHead(204);
+            return res.end();
+          });
         }
         throw new HttpError(405, 'Method not allowed');
       }

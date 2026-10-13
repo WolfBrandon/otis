@@ -278,8 +278,8 @@ browser has open), `/api/show` (ask open windows to switch) and
 `/api/update` (GET: can OTIS update itself; POST: pull the new code and
 restart, used by Help → About). Project GETs
 return an `ETag`. A PUT with `If-Match` is refused with 412 when someone else
-saved in between, which is how the browser and the MCP server avoid
-overwriting each other.
+saved in between, or deleted the project, which is how the browser and the
+MCP server avoid overwriting each other.
 
 ```sh
 npm test               # node --test
