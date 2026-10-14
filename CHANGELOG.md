@@ -11,6 +11,16 @@ All notable changes to OTIS are listed here. The format follows
 While OTIS is below 1.0, a minor version may still change the file format,
 and this file will say so when it does.
 
+## [0.5.2] - 2026-10-14
+
+### Fixed
+
+- The properties panel updates as soon as you pick from a list, click a
+  button or tick a box. Turning a box's border back on shows its Title fields
+  again, Left/Center/Right lights up the one you picked, and a table's column
+  and row counts change at once; before, they waited until you clicked
+  somewhere else. Typing in a field is still never interrupted.
+
 ## [0.5.1] - 2026-10-13
 
 ### Fixed

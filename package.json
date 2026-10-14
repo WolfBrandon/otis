@@ -1,6 +1,6 @@
 {
   "name": "otis",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "OTIS - Omarchy Text Interface Studio. A GUI designer for TUIs.",
   "type": "module",
   "license": "MIT",

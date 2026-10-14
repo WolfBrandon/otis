@@ -111,6 +111,15 @@ function queueProps() {
   requestAnimationFrame(() => { propsQueued = false; renderProps(); });
 }
 
+// Redrawing the panel would drop the caret of someone typing in it, so edits
+// wait for them to leave the field. A list, button or checkbox redraws at
+// once: it can show or hide other fields (a border's title, say).
+function typingInProps() {
+  const a = document.activeElement;
+  return panelBody('props').contains(a) && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !['checkbox', 'radio'].includes(a.type)));
+}
+
+let propsShowing = null;
 function renderProps() {
   const root = panelBody('props');
   const sel = selected();
@@ -120,7 +129,15 @@ function renderProps() {
   else body = multiProps(sel);
   const [h, ...rest] = body;
   setHeader('props', h.title, h.actions);
+  // keep the focus on the same control when the panel shows the same objects
+  const controls = () => [...root.querySelectorAll('input, select, textarea, button')];
+  const showing = sel.map(o => o.id).join(',');
+  const focused = document.activeElement;
+  const at = showing === propsShowing && root.contains(focused) ? controls().indexOf(focused) : -1;
+  propsShowing = showing;
   root.replaceChildren(...rest);
+  const again = at >= 0 && controls()[at];
+  if (again && again.tagName === focused.tagName && again.type === focused.type) again.focus();
 }
 
 function canvasProps() {
@@ -631,7 +648,7 @@ export function initPanels() {
     queueProps(); queueLayers(); renderStatus();
   });
   on('doc', () => {
-    if (!panelBody('props').contains(document.activeElement)) queueProps();
+    if (!typingInProps()) queueProps();
     queueLayers();
     renderStatus();
   });
